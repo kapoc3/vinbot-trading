@@ -134,7 +134,27 @@ class DynamicStrategyProxy:
                         return "SELL"
 
         # 2. Normal Strategy Analysis
-        return strategy_manager.get_strategy(symbol).analyze(symbol)
+        signal = strategy_manager.get_strategy(symbol).analyze(symbol)
+
+        # 3. Volume Confirmation Veto (Only for BUY signals)
+        if signal == "BUY" and settings.ENABLE_VOLUME_CONFIRMATION:
+            symbol_data = get_symbol_data(symbol)
+            vwap = symbol_data.get_vwap(settings.VWAP_PERIOD)
+            obv = symbol_data.get_obv()
+            obv_sma = symbol_data.get_obv_sma(20)
+            current_price = symbol_data.closes[-1] if symbol_data.closes else 0.0
+
+            # Price must be at or above VWAP
+            if vwap is not None and current_price < vwap:
+                logger.info(f"VETO | {symbol} BUY vetoed: Price {current_price:.2f} below VWAP {vwap:.2f}")
+                return None
+            
+            # OBV must be above its average (confirming accumulation)
+            if obv is not None and obv_sma is not None and obv < obv_sma:
+                logger.info(f"VETO | {symbol} BUY vetoed: OBV {obv:.2f} below average {obv_sma:.2f}")
+                return None
+
+        return signal
     
     async def update_position(self, symbol: str, in_position: bool):
         # Update underlying strategies

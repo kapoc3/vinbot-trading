@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     TRADING_STRATEGY: str = "RsiOnly" # RsiOnly | RsiWithDivergence | Auto | BollingerBands | MacdMaCross | Breakout
     BREAKOUT_VOLUME_MULTIPLIER: float = 1.5
+    ENABLE_VOLUME_CONFIRMATION: bool = False
+    VWAP_PERIOD: int = 50
     
     # Persistence
     DATABASE_PATH: str = "data/vinbot.db"

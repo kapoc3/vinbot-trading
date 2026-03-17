@@ -96,8 +96,6 @@ class TechnicalIndicators:
         # Bullish Divergence check (Recent Lows)
         if len(price_lows) >= 2 and len(rsi_lows) >= 2:
             p2, p1 = price_lows[-2], price_lows[-1] # p1 is more recent
-            # Look for corresponding RSI points (within a tolerance of indices or same relative sequence)
-            # For simplicity in this native version, we assume the latest 2 swings are the target
             r2, r1 = rsi_lows[-2], rsi_lows[-1]
 
             if p1['value'] < p2['value'] and r1['value'] > r2['value']:
@@ -249,8 +247,6 @@ class TechnicalIndicators:
         # We need a series of MACD line values to calculate the signal line (which is an EMA of the MACD line)
         macd_line_history = []
         
-        # Calculate MACD line for enough points to then get the Signal line
-        # Minimal data needed is slow_period + signal_period
         for i in range(slow_period, len(prices) + 1):
             sub_prices = prices[:i]
             fast_ema = TechnicalIndicators.calculate_ema(sub_prices, fast_period)
@@ -303,6 +299,56 @@ class TechnicalIndicators:
             return None
         return sum(data[-period:]) / period
 
+    @staticmethod
+    def calculate_vwap(highs: List[float], lows: List[float], closes: List[float], volumes: List[float], period: int = 50) -> Optional[float]:
+        """
+        Calculate Rolling Volume Weighted Average Price (VWAP).
+        Formula: sum(TypicalPrice * Volume) / sum(Volume)
+        """
+        if len(closes) < period:
+            return None
+        
+        recent_highs = highs[-period:]
+        recent_lows = lows[-period:]
+        recent_closes = closes[-period:]
+        recent_volumes = volumes[-period:]
+        
+        weighted_sum = 0.0
+        volume_sum = 0.0
+        
+        for i in range(period):
+            typical_price = (recent_highs[i] + recent_lows[i] + recent_closes[i]) / 3
+            weighted_sum += typical_price * recent_volumes[i]
+            volume_sum += recent_volumes[i]
+            
+        if volume_sum == 0:
+            return None
+            
+        return weighted_sum / volume_sum
+
+    @staticmethod
+    def calculate_obv(closes: List[float], volumes: List[float]) -> List[float]:
+        """
+        Calculate On-Balance Volume (OBV) series.
+        """
+        if not closes or not volumes:
+            return []
+            
+        obv_series = []
+        current_obv = 0.0
+        
+        for i in range(len(closes)):
+            if i == 0:
+                current_obv = volumes[i]
+            else:
+                if closes[i] > closes[i-1]:
+                    current_obv += volumes[i]
+                elif closes[i] < closes[i-1]:
+                    current_obv -= volumes[i]
+            obv_series.append(current_obv)
+            
+        return obv_series
+
 class SymbolData:
     """Manages historical kline data for a specific symbol."""
     def __init__(self, max_history: int = 500):
@@ -310,8 +356,10 @@ class SymbolData:
         self.highs = deque(maxlen=max_history)
         self.lows = deque(maxlen=max_history)
         self.volumes = deque(maxlen=max_history)
+        self.obv_history = deque(maxlen=max_history)
         self.rsis = deque(maxlen=max_history)
         self.klines = deque(maxlen=max_history)
+        self._current_obv = 0.0
 
     def add_kline(self, kline: Dict):
         """Add a full kline and update all indicator histories."""
@@ -320,10 +368,21 @@ class SymbolData:
         low_price = float(kline.get("l", 0))
         volume = float(kline.get("v", 0))
         
+        # Calculate OBV before adding to history
+        if len(self.closes) > 0:
+            prev_close = self.closes[-1]
+            if close_price > prev_close:
+                self._current_obv += volume
+            elif close_price < prev_close:
+                self._current_obv -= volume
+        else:
+            self._current_obv = volume
+            
         self.closes.append(close_price)
         self.highs.append(high_price)
         self.lows.append(low_price)
         self.volumes.append(volume)
+        self.obv_history.append(self._current_obv)
         self.klines.append(kline)
         
         # Calculate current RSI and store it
@@ -333,11 +392,21 @@ class SymbolData:
 
     def add_close(self, close_price: float):
         """Add a new closing price (fallback if only close is known)."""
-        self.closes.append(float(close_price))
-        # For indicators requiring high/low, we use close as estimate if unknown
+        close_price = float(close_price)
+        # OBV update for close-only
+        if len(self.closes) > 0:
+            prev_close = self.closes[-1]
+            if close_price > prev_close:
+                self._current_obv += 0 # Volume unknown, but let's keep it consistent
+            elif close_price < prev_close:
+                self._current_obv -= 0
+        
+        self.closes.append(close_price)
         if len(self.highs) < len(self.closes):
             self.highs.append(close_price)
             self.lows.append(close_price)
+            self.volumes.append(0.0)
+            self.obv_history.append(self._current_obv)
         
         current_rsi = self.get_rsi()
         if current_rsi is not None:
@@ -380,6 +449,22 @@ class SymbolData:
     def get_volume_sma(self, period: int = 20) -> Optional[float]:
         """Calculate Simple Moving Average of volume."""
         return TechnicalIndicators.calculate_sma(list(self.volumes), period)
+
+    def get_vwap(self, period: int = 50) -> Optional[float]:
+        """Calculate current rolling VWAP."""
+        return TechnicalIndicators.calculate_vwap(
+            list(self.highs), list(self.lows), list(self.closes), list(self.volumes), period
+        )
+
+    def get_obv(self) -> Optional[float]:
+        """Get the current OBV value."""
+        if not self.obv_history:
+            return None
+        return self.obv_history[-1]
+
+    def get_obv_sma(self, period: int = 20) -> Optional[float]:
+        """Calculate SMA of OBV to detect trend."""
+        return TechnicalIndicators.calculate_sma(list(self.obv_history), period)
 
 # Global store for symbol data
 market_indicators: Dict[str, SymbolData] = {}
