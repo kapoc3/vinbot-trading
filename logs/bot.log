@@ -86,3 +86,37 @@
 2026-03-17 05:57:09,304 [ERROR] opentelemetry.exporter.otlp.proto.grpc.exporter: Failed to export traces to tempo:4317, error code: StatusCode.UNAVAILABLE
 2026-03-17 05:57:19,311 [WARNING] opentelemetry.exporter.otlp.proto.grpc.exporter: Transient error StatusCode.UNAVAILABLE encountered while exporting traces to tempo:4317, retrying in 0.82s.
 2026-03-17 05:57:20,138 [WARNING] opentelemetry.exporter.otlp.proto.grpc.exporter: Transient error StatusCode.UNAVAILABLE encountered while exporting traces to tempo:4317, retrying in 1.65s.
+2026-03-17 05:57:25,741 [ERROR] opentelemetry.exporter.otlp.proto.grpc.exporter: Failed to export traces to tempo:4317, error code: StatusCode.UNAVAILABLE
+2026-03-17 05:57:35,748 [WARNING] opentelemetry.exporter.otlp.proto.grpc.exporter: Transient error StatusCode.UNAVAILABLE encountered while exporting traces to tempo:4317, retrying in 0.97s.
+2026-03-17 05:57:42,216 [ERROR] opentelemetry.exporter.otlp.proto.grpc.exporter: Failed to export traces to tempo:4317, error code: StatusCode.UNAVAILABLE
+2026-03-17 05:57:47,218 [WARNING] opentelemetry.exporter.otlp.proto.grpc.exporter: Transient error StatusCode.UNAVAILABLE encountered while exporting traces to tempo:4317, retrying in 1.17s.
+2026-03-17 05:57:54,296 [ERROR] opentelemetry.exporter.otlp.proto.grpc.exporter: Failed to export traces to tempo:4317, error code: StatusCode.UNAVAILABLE
+2026-03-17 05:58:00,482 [INFO] app.main: Kline Closed | ETHUSDT RSI: 53.07
+2026-03-17 05:58:00,491 [INFO] app.main: Kline Closed | BTCUSDT RSI: 45.54
+2026-03-17 05:58:04,300 [WARNING] opentelemetry.exporter.otlp.proto.grpc.exporter: Transient error StatusCode.UNAVAILABLE encountered while exporting traces to tempo:4317, retrying in 1.17s.
+2026-03-17 05:58:12,037 [ERROR] opentelemetry.exporter.otlp.proto.grpc.exporter: Failed to export traces to tempo:4317, error code: StatusCode.UNAVAILABLE
+2026-03-17 05:58:22,042 [WARNING] opentelemetry.exporter.otlp.proto.grpc.exporter: Transient error StatusCode.UNAVAILABLE encountered while exporting traces to tempo:4317, retrying in 1.04s.
+2026-03-17 05:58:29,289 [ERROR] opentelemetry.exporter.otlp.proto.grpc.exporter: Failed to export traces to tempo:4317, error code: StatusCode.UNAVAILABLE
+2026-03-17 05:58:34,294 [WARNING] opentelemetry.exporter.otlp.proto.grpc.exporter: Transient error StatusCode.UNAVAILABLE encountered while exporting traces to tempo:4317, retrying in 1.15s.
+2026-03-17 05:58:42,311 [ERROR] opentelemetry.exporter.otlp.proto.grpc.exporter: Failed to export traces to tempo:4317, error code: StatusCode.UNAVAILABLE
+2026-03-17 05:58:47,313 [WARNING] opentelemetry.exporter.otlp.proto.grpc.exporter: Transient error StatusCode.UNAVAILABLE encountered while exporting traces to tempo:4317, retrying in 1.08s.
+2026-03-17 05:58:54,716 [ERROR] opentelemetry.exporter.otlp.proto.grpc.exporter: Failed to export traces to tempo:4317, error code: StatusCode.UNAVAILABLE
+2026-03-17 05:59:00,536 [INFO] app.main: Kline Closed | ETHUSDT RSI: 45.40
+2026-03-17 05:59:00,570 [INFO] app.main: Kline Closed | BTCUSDT RSI: 42.01
+2026-03-17 05:59:04,721 [WARNING] opentelemetry.exporter.otlp.proto.grpc.exporter: Transient error StatusCode.UNAVAILABLE encountered while exporting traces to tempo:4317, retrying in 0.98s.
+2026-03-17 05:59:11,013 [ERROR] opentelemetry.exporter.otlp.proto.grpc.exporter: Failed to export traces to tempo:4317, error code: StatusCode.UNAVAILABLE
+2026-03-17 05:59:21,022 [WARNING] opentelemetry.exporter.otlp.proto.grpc.exporter: Transient error StatusCode.UNAVAILABLE encountered while exporting traces to tempo:4317, retrying in 0.85s.
+2026-03-17 05:59:27,603 [ERROR] opentelemetry.exporter.otlp.proto.grpc.exporter: Failed to export traces to tempo:4317, error code: StatusCode.UNAVAILABLE
+2026-03-17 05:59:32,605 [WARNING] opentelemetry.exporter.otlp.proto.grpc.exporter: Transient error StatusCode.UNAVAILABLE encountered while exporting traces to tempo:4317, retrying in 1.10s.
+2026-03-17 05:59:39,798 [ERROR] opentelemetry.exporter.otlp.proto.grpc.exporter: Failed to export traces to tempo:4317, error code: StatusCode.UNAVAILABLE
+2026-03-17 05:59:49,804 [WARNING] opentelemetry.exporter.otlp.proto.grpc.exporter: Transient error StatusCode.UNAVAILABLE encountered while exporting traces to tempo:4317, retrying in 1.13s.
+2026-03-17 05:59:56,674 [ERROR] opentelemetry.exporter.otlp.proto.grpc.exporter: Failed to export traces to tempo:4317, error code: StatusCode.UNAVAILABLE
+2026-03-17 06:00:00,041 [INFO] app.main: Kline Closed | ETHUSDT RSI: 46.63
+2026-03-17 06:00:00,049 [INFO] app.main: Kline Closed | BTCUSDT RSI: 42.81
+2026-03-17 06:00:06,680 [WARNING] opentelemetry.exporter.otlp.proto.grpc.exporter: Transient error StatusCode.UNAVAILABLE encountered while exporting traces to tempo:4317, retrying in 1.18s.
+2026-03-17 06:00:14,119 [ERROR] opentelemetry.exporter.otlp.proto.grpc.exporter: Failed to export traces to tempo:4317, error code: StatusCode.UNAVAILABLE
+2026-03-17 06:00:19,125 [WARNING] opentelemetry.exporter.otlp.proto.grpc.exporter: Transient error StatusCode.UNAVAILABLE encountered while exporting traces to tempo:4317, retrying in 0.86s.
+2026-03-17 06:00:21,618 [WARNING] opentelemetry.exporter.otlp.proto.grpc.exporter: Transient error StatusCode.UNAVAILABLE encountered while exporting traces to tempo:4317, retrying in 3.47s.
+2026-03-17 06:00:25,089 [ERROR] opentelemetry.exporter.otlp.proto.grpc.exporter: Failed to export traces to tempo:4317, error code: StatusCode.UNAVAILABLE
+2026-03-17 06:00:35,101 [WARNING] opentelemetry.exporter.otlp.proto.grpc.exporter: Transient error StatusCode.UNAVAILABLE encountered while exporting traces to tempo:4317, retrying in 0.87s.
+2026-03-17 06:00:40,964 [ERROR] opentelemetry.exporter.otlp.proto.grpc.exporter: Failed to export traces to tempo:4317, error code: StatusCode.UNAVAILABLE
