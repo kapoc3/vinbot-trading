@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - **Bollinger Bands Strategy**: Added `BollingerBandsStrategy` specifically optimized for ranging markets, combining price band breaches with RSI confirmation.
 - **MACD + MA Cross Strategy**: Added `MacdMaCrossStrategy` for heavy trending markets, featuring an EMA 200 trend filter and MACD signal crossovers.
 - **Partial Take Profit (Scaled Exits)**: Added support for selling portions of a position at multiple profit targets (e.g., sell 50% at +5%, 25% at +10%).
+- **Relative Strength Filter (Alt vs BTC)**: Interceptor that vetoes altcoin BUY signals if they are underperforming Bitcoin over a 14-period window, ensuring capital is always in market leaders.
 - **Dynamic Position Sizing (Risk-Based)**: Algorithmic quantity calculation based on account risk (e.g., risk 1% of equity per trade), ensuring uniform portfolio impact across different assets.
 - **BTC Directional Filter**: Global "Market Regime" veto that blocks long positions if Bitcoin is below its 200-period EMA, protecting against systemic crashes.
 - **Break-Even Stop Loss**: Automatically moves the hard stop-loss to the entry price once the first profit target is hit, ensuring risk-free trades.

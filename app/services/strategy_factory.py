@@ -164,6 +164,23 @@ class DynamicStrategyProxy:
                 logger.info(f"VETO | {symbol} BUY vetoed: BTC Macro Trend is Bearish (Price {current_btc_price:.2f} < EMA {btc_ema:.2f})")
                 return None
 
+        # 5. Relative Strength Filter Veto (vs BTC)
+        if signal == "BUY" and symbol != "BTCUSDT" and settings.ENABLE_RELATIVE_STRENGTH_FILTER:
+            symbol_data = get_symbol_data(symbol)
+            btc_data = get_symbol_data("BTCUSDT")
+            
+            alt_roc = symbol_data.get_roc(settings.RS_LOOKBACK_PERIOD)
+            btc_roc = btc_data.get_roc(settings.RS_LOOKBACK_PERIOD)
+            
+            if alt_roc is not None and btc_roc is not None:
+                if alt_roc < btc_roc:
+                    logger.info(f"VETO | {symbol} BUY vetoed: Relative Strength Underperformance (Alt ROC {alt_roc:.2f}% < BTC ROC {btc_roc:.2f}%)")
+                    return None
+            elif alt_roc is None or btc_roc is None:
+                # If we don't have enough data history yet, veto for safety
+                logger.warning(f"VETO | {symbol} BUY vetoed: Insufficient history for RS calculation")
+                return None
+
         return signal
     
     async def update_position(self, symbol: str, in_position: bool):

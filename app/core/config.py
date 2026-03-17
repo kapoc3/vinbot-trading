@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     ALLOCATED_CAPITAL: float = 1000.0
     RISK_PER_TRADE_PCT: float = 1.0
     
+    # Relative Strength Filter
+    ENABLE_RELATIVE_STRENGTH_FILTER: bool = True
+    RS_LOOKBACK_PERIOD: int = 14
+    
     # Persistence
     DATABASE_PATH: str = "data/vinbot.db"
 

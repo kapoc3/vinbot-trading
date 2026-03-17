@@ -466,6 +466,22 @@ class SymbolData:
         """Calculate SMA of OBV to detect trend."""
         return TechnicalIndicators.calculate_sma(list(self.obv_history), period)
 
+    def get_roc(self, period: int) -> Optional[float]:
+        """
+        Calculate Rate of Change (ROC) for a given period.
+        Formula: ((Current - Prior) / Prior) * 100
+        """
+        if len(self.closes) <= period:
+            return None
+        
+        current_close = self.closes[-1]
+        prior_close = self.closes[-(period + 1)]
+        
+        if prior_close == 0:
+            return 0.0
+            
+        return ((current_close - prior_close) / prior_close) * 100.0
+
 # Global store for symbol data
 market_indicators: Dict[str, SymbolData] = {}
 
