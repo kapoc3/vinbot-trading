@@ -3,6 +3,7 @@ from typing import Dict, Any, Optional, List
 from app.services.rsi_strategy import RSIStrategy
 from app.services.divergence_strategy import RsiDivergenceStrategy
 from app.services.bollinger_strategy import BollingerBandsStrategy
+from app.services.macd_strategy import MacdMaCrossStrategy
 from app.services.regime_service import regime_service, MarketRegime
 from app.core.config import get_settings
 
@@ -16,6 +17,7 @@ class StrategyManager:
         self.rsi_only = RSIStrategy()
         self.rsi_divergence = RsiDivergenceStrategy()
         self.bollinger = BollingerBandsStrategy()
+        self.macd_cross = MacdMaCrossStrategy()
         
         # Local cache for active strategies per symbol (for 'Auto' mode)
         self.symbol_strategies: Dict[str, Any] = {}
@@ -29,6 +31,8 @@ class StrategyManager:
                 return self.rsi_divergence
             if self.strategy_type == "BollingerBands":
                 return self.bollinger
+            if self.strategy_type == "MacdMaCross":
+                return self.macd_cross
             return self.rsi_only
 
         # Auto Mode Logic
@@ -60,7 +64,12 @@ class StrategyManager:
         
         new_strat = self.rsi_only # Default for ranging
         if regime == MarketRegime.TRENDING:
-            new_strat = self.rsi_divergence
+            # Check trend strength
+            adx = regime_service.get_adx_value(symbol)
+            if adx > 40:
+                new_strat = self.macd_cross # Strong trend needs confirmation
+            else:
+                new_strat = self.rsi_divergence # Normal trend follows momentum
         elif regime == MarketRegime.RANGING:
             new_strat = self.bollinger
         elif regime == MarketRegime.HIGH_VOLATILITY:
@@ -79,6 +88,7 @@ class StrategyManager:
         await self.rsi_only.load_initial_state(symbols)
         await self.rsi_divergence.load_initial_state(symbols)
         await self.bollinger.load_initial_state(symbols)
+        await self.macd_cross.load_initial_state(symbols)
 
 strategy_manager = StrategyManager()
 # To maintain backward compatibility with main.py which expected 'current_strategy' as singleton:
@@ -91,6 +101,7 @@ class DynamicStrategyProxy:
         await strategy_manager.rsi_only.update_position(symbol, in_position)
         await strategy_manager.rsi_divergence.update_position(symbol, in_position)
         await strategy_manager.bollinger.update_position(symbol, in_position)
+        await strategy_manager.macd_cross.update_position(symbol, in_position)
 
     async def load_initial_state(self, symbols: List[str]):
         await strategy_manager.load_initial_states(symbols)

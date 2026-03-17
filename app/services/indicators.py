@@ -218,9 +218,66 @@ class TechnicalIndicators:
             "lower": sma - (std_dev_multiplier * std_dev)
         }
 
+    @staticmethod
+    def calculate_ema(prices: List[float], period: int) -> Optional[float]:
+        """
+        Calculate Exponential Moving Average (EMA).
+        For the first value, it uses SMA.
+        """
+        if len(prices) < period:
+            return None
+        
+        k = 2 / (period + 1)
+        # Start with SMA of the first 'period' elements
+        ema = sum(prices[:period]) / period
+        
+        # Apply weighting factor for subsequent elements
+        for i in range(period, len(prices)):
+            ema = (prices[i] * k) + (ema * (1 - k))
+            
+        return ema
+
+    @staticmethod
+    def calculate_macd(prices: List[float], fast_period: int = 12, slow_period: int = 26, signal_period: int = 9) -> Optional[Dict[str, float]]:
+        """
+        Calculate MACD (Moving Average Convergence Divergence).
+        Returns a dict with 'macd', 'signal', and 'histogram'.
+        """
+        if len(prices) < slow_period + signal_period:
+            return None
+            
+        # We need a series of MACD line values to calculate the signal line (which is an EMA of the MACD line)
+        macd_line_history = []
+        
+        # Calculate MACD line for enough points to then get the Signal line
+        # Minimal data needed is slow_period + signal_period
+        for i in range(slow_period, len(prices) + 1):
+            sub_prices = prices[:i]
+            fast_ema = TechnicalIndicators.calculate_ema(sub_prices, fast_period)
+            slow_ema = TechnicalIndicators.calculate_ema(sub_prices, slow_period)
+            
+            if fast_ema is not None and slow_ema is not None:
+                macd_line_history.append(fast_ema - slow_ema)
+        
+        if len(macd_line_history) < signal_period:
+            return None
+            
+        # Signal line is EMA of the MACD line
+        signal_line = TechnicalIndicators.calculate_ema(macd_line_history, signal_period)
+        
+        if signal_line is None:
+            return None
+            
+        current_macd = macd_line_history[-1]
+        return {
+            "macd": current_macd,
+            "signal": signal_line,
+            "histogram": current_macd - signal_line
+        }
+
 class SymbolData:
     """Manages historical kline data for a specific symbol."""
-    def __init__(self, max_history: int = 150):
+    def __init__(self, max_history: int = 500):
         self.closes = deque(maxlen=max_history)
         self.highs = deque(maxlen=max_history)
         self.lows = deque(maxlen=max_history)
@@ -276,6 +333,14 @@ class SymbolData:
     def get_bollinger_bands(self, period: int = 20, std_dev_multiplier: float = 2.0) -> Optional[Dict[str, float]]:
         """Calculate Bollinger Bands for the current history."""
         return TechnicalIndicators.calculate_bollinger_bands(list(self.closes), period, std_dev_multiplier)
+
+    def get_ema(self, period: int) -> Optional[float]:
+        """Calculate EMA for a specific period."""
+        return TechnicalIndicators.calculate_ema(list(self.closes), period)
+
+    def get_macd(self, fast: int = 12, slow: int = 26, signal: int = 9) -> Optional[Dict[str, float]]:
+        """Calculate MACD."""
+        return TechnicalIndicators.calculate_macd(list(self.closes), fast, slow, signal)
 
 # Global store for symbol data
 market_indicators: Dict[str, SymbolData] = {}

@@ -63,4 +63,10 @@ class RegimeService:
             
         return new_regime
 
+    def get_adx_value(self, symbol: str) -> float:
+        """Helper to get last ADX value for a symbol."""
+        symbol_data = get_symbol_data(symbol)
+        adx = symbol_data.get_adx()
+        return adx if adx is not None else 0.0
+
 regime_service = RegimeService()
