@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     USE_TESTNET: bool = True
     TRADING_SYMBOLS: str = "BTCUSDT"
     LOG_LEVEL: str = "INFO"
+    
+    # Persistence
+    DATABASE_PATH: str = "data/vinbot.db"
 
     @property
     def BINANCE_BASE_URL(self) -> str:

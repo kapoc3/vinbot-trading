@@ -1,10 +1,12 @@
 import aiosqlite
 import logging
 from pathlib import Path
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
-DB_PATH = Path("vinbot.db")
+DB_PATH = Path(settings.DATABASE_PATH)
 
 class Database:
     def __init__(self):
@@ -13,6 +15,9 @@ class Database:
     async def connect(self):
         """Task 1.2: Connect to SQLite and initialize tables."""
         if self.connection is None:
+            # Ensure directory exists
+            DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+            
             self.connection = await aiosqlite.connect(DB_PATH)
             self.connection.row_factory = aiosqlite.Row
             await self._init_tables()
