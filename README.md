@@ -5,9 +5,10 @@ VinBot is an algorithmic trading bot built with FastAPI and Python. It is design
 ## Architecture & Features
 - **FastAPI Core**: Lightweight and fast framework for the backend structure.
 - **Binance Integration**: Sync server time, capture WebSocket streams, place market orders.
-- **Risk Management**: Keep track of entries, daily PnL, circuit breakers, and Stop Loss / Take profit boundaries.
-- **Observability Stack**: Full LGTM stack configuration out of the box using `docker-compose.yml`.
-- **Telegram Notifications**: Event-driven alert system on trades and system thresholds.
+- **Autonomous Regime Detection**: Automatically classifies the market into `Trending`, `Ranging`, or `HighVolatility` using ADX and ATR.
+- **Dynamic Strategy Orchestration**: Real-time strategy switching based on market conditions (RSI + Divergence for Trends, Bollinger Bands for Ranges).
+- **Strategy Consistency Lock**: Safety mechanism to prevent strategy changes during active trades.
+- **Observability Stack**: Full LGTM stack (Loki, Grafana, Tempo, Prometheus) for deep insights into bot performance.
 
 ## Requirements
 - Docker & Docker Compose
@@ -15,20 +16,9 @@ VinBot is an algorithmic trading bot built with FastAPI and Python. It is design
 ```
 BINANCE_API_KEY=your_api_key
 BINANCE_SECRET_KEY=your_secret_key
-BINANCE_BASE_URL=https://testnet.binance.vision
-TELEGRAM_BOT_TOKEN=your_token
-TELEGRAM_CHAT_ID=your_chat_id
-LOG_LEVEL=INFO
-PROJECT_NAME=VinBot
-DATABASE_URL=sqlite+aiosqlite:///data/vinbot.db
-STOP_LOSS_PCT=1.5
-TAKE_PROFIT_PCT=3.0
-MAX_DAILY_LOSS_PCT=5.0
-RSI_PERIOD=14
-RSI_OVERSOLD=30
-RSI_OVERBOUGHT=70
-OTLP_ENDPOINT=http://tempo:4317
-PROMETHEUS_METRICS_PATH=/metrics
+# Strategy: RsiOnly, RsiWithDivergence, BollingerBands, or Auto
+TRADING_STRATEGY=Auto
+...
 ```
 
 ## Running the Bot
@@ -40,15 +30,9 @@ docker compose up -d
 ```
 
 ### Checking Status
-- **Grafana**: [http://localhost:3001](http://localhost:3001) - Includes automatically provisioned Dashboards for VinBot.
+- **Grafana**: [http://localhost:3001](http://localhost:3001) - Includes dashboards for PnL, Market Regime, and RSI.
 - **Prometheus**: [http://localhost:9090](http://localhost:9090)
-- **Loki**: Running on `3101` (Internal default is `3100`)
 
 ## Changelog
 
-### v1.1.0 - 2026-03-17
-* **Added**: Integrated complete LGTM (Loki, Grafana, Tempo, Prometheus) observability stack using Docker setup.
-* **Added**: OpenTelemetry instrumentation and custom Prometheus metrics within the FastAPI application (`app/core/metrics.py`, `app/core/observability.py`).
-* **Added**: Dashboard provisioning in Grafana for VinBot RSI tracking and Daily PnL summary.
-* **Changed**: Migrated dependency management from `requirements.txt` to `Poetry` (`pyproject.toml`).
-* **Fixed**: Ignored `.env` file safely with `.gitignore`.
+See [CHANGELOG.md](./CHANGELOG.md) for a full history of changes.
