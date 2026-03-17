@@ -3,6 +3,7 @@ from typing import Dict, Any, List, Optional
 from app.core.config import get_settings
 from app.services.binance_client import binance_client
 from app.services.persistence import persistence
+from app.services.risk_manager import risk_manager
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,12 @@ class TradingEngine:
             order = await binance_client.request("POST", "/v3/order", params=params, signed=True)
             self.order_history.append(order)
             
+            # Task 3.2: Update entry price in risk manager if it's a BUY
+            if side == "BUY":
+                # Binance gives price in 'price' or fills
+                entry_p = float(order.get("price", 0) or order.get("fills", [{}])[0].get("price", 0))
+                await risk_manager.set_entry_price(symbol, entry_p)
+
             # Task 3.3: Save to persistent database
             await persistence.save_order(order, rsi=rsi)
             

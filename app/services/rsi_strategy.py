@@ -1,6 +1,7 @@
 import logging
 from typing import Dict, Any, Optional, List
 from app.services.indicators import get_symbol_data
+from app.services.risk_manager import risk_manager
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,11 @@ class RSIStrategy:
         
         # BUY signal: Oversold and not in position
         if rsi < self.oversold and not current_in_position:
+            # Task 3.1: Check if trading is allowed by risk manager
+            if not risk_manager.is_trading_allowed():
+                logger.warning(f"STRATEGY | BUY signal blocked by RISK MANAGER for {symbol}")
+                return None
+            
             logger.info(f"STRATEGY | BUY Signal for {symbol} (RSI: {rsi:.2f})")
             return "BUY"
             

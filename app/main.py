@@ -8,6 +8,7 @@ from app.api.v1.router import api_router
 from app.services.binance_client import binance_client
 from app.services.market_data import market_service
 from app.core.database import db
+from app.services.risk_manager import risk_manager
 
 settings = get_settings()
 logging.basicConfig(level=settings.LOG_LEVEL)
@@ -25,6 +26,19 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
     close_price = float(kline.get("c", 0))
     is_closed = kline.get("x", False)
     
+    # Task 2.2: Real-time SL/TP check on every pricing tick
+    risk_signal = risk_manager.check_sl_tp(symbol, close_price)
+    if risk_signal and trading_engine.is_running:
+        logger.warning(f"RISK | Action {risk_signal} triggered for {symbol}")
+        try:
+            # Liquidate position immediately
+            order = await trading_engine.place_market_order(symbol, "SELL", quantity=0.01, rsi=None)
+            await rsi_strategy.update_position(symbol, False)
+            await risk_manager.clear_entry_price(symbol)
+            logger.info(f"RISK | Exit Order Successful: {order.get('orderId')}")
+        except Exception as e:
+            logger.error(f"RISK | Failed to liquidate {symbol}: {e}")
+
     if is_closed:
         # Task 2.3: Update indicator history on kline close
         symbol_data = get_symbol_data(symbol)
@@ -65,8 +79,9 @@ async def run_trading_bot():
     
     symbols = settings.TRADING_SYMBOLS.split(",")
     
-    # Task 3.1: Load initial state from DB
+    # Task 1.3 & 2.3 & 3.1: Load initial risk state
     await rsi_strategy.load_initial_state(symbols)
+    await risk_manager.load_initial_state(symbols)
     
     # Task 2.1 & 2.2: Warm-up historical data
     for symbol in symbols:

@@ -6,6 +6,11 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     SECRET_KEY: str = "secret"
     
+    # Risk Management
+    STOP_LOSS_PCT: float = 2.0
+    TAKE_PROFIT_PCT: float = 5.0
+    MAX_DAILY_LOSS_PCT: float = 5.0
+    
     # Binance Credentials
     BINANCE_API_KEY: str = ""
     BINANCE_SECRET_KEY: str = ""

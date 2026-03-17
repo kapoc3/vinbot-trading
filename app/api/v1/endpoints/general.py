@@ -3,6 +3,7 @@ from app.services.binance_client import binance_client
 from app.services.account_manager import account_manager
 from app.services.trading_engine import trading_engine
 from app.core.database import db
+from app.services.risk_manager import risk_manager
 from typing import Dict, Any, List
 
 router = APIRouter()
@@ -48,3 +49,13 @@ async def get_persistent_history(limit: int = 50) -> List[Dict[str, Any]]:
     ) as cursor:
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+@router.get("/bot/risk-status")
+async def get_risk_status() -> Dict[str, Any]:
+    """Task 4.2: Get current risk status and daily performance."""
+    return {
+        "daily_pnl": risk_manager.daily_pnl,
+        "daily_loss_reached": risk_manager.daily_loss_reached,
+        "entry_prices": risk_manager.entry_prices,
+        "allowed_to_trade": risk_manager.is_trading_allowed()
+    }
