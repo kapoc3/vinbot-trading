@@ -1,6 +1,8 @@
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+from app.core.config import get_settings
 from app.services.binance_client import binance_client
+from app.services.persistence import persistence
 
 logger = logging.getLogger(__name__)
 
@@ -9,18 +11,22 @@ class TradingEngine:
         self.order_history = []
         self.is_running = False
 
-    async def place_market_order(self, symbol: str, side: str, quantity: float) -> Dict[str, Any]:
-        """Place a market order (Task 4.1)."""
+    async def place_market_order(self, symbol: str, side: str, quantity: float, rsi: Optional[float] = None) -> Dict[str, Any]:
+        """Place a MARKET order on Binance and persist the result."""
         params = {
             "symbol": symbol,
             "side": side,
             "type": "MARKET",
-            "quantity": quantity
+            "quantity": str(quantity)
         }
         try:
             logger.info(f"Placing {side} MARKET order for {quantity} {symbol}")
             order = await binance_client.request("POST", "/v3/order", params=params, signed=True)
             self.order_history.append(order)
+            
+            # Task 3.3: Save to persistent database
+            await persistence.save_order(order, rsi=rsi)
+            
             return order
         except Exception as e:
             logger.error(f"Failed to place market order: {e}")

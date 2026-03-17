@@ -7,6 +7,7 @@ from app.core.config import get_settings
 from app.api.v1.router import api_router
 from app.services.binance_client import binance_client
 from app.services.market_data import market_service
+from app.core.database import db
 
 settings = get_settings()
 logging.basicConfig(level=settings.LOG_LEVEL)
@@ -42,10 +43,10 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
                 
                 try:
                     logger.info(f"EXECUTION | Placing {side} order for {symbol} at {close_price}")
-                    order = await trading_engine.place_market_order(symbol, side, quantity)
+                    order = await trading_engine.place_market_order(symbol, side, quantity, rsi=rsi)
                     logger.info(f"EXECUTION | Order Success: {order.get('orderId')}")
                     # Task 4.3: Update position status in strategy
-                    rsi_strategy.update_position(symbol, side == "BUY")
+                    await rsi_strategy.update_position(symbol, side == "BUY")
                 except Exception as e:
                     logger.error(f"EXECUTION | Order Failed for {symbol}: {e}")
         else:
@@ -58,11 +59,14 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
     # logger.info(f"Market Update | {symbol}: {close_price}")
 
 async def run_trading_bot():
-    """Background task for the trading engine (Task 6.2)."""
+    """Background task for the trading engine."""
     logger.info("Starting Trading Bot background loop...")
     await binance_client.sync_time()
     
     symbols = settings.TRADING_SYMBOLS.split(",")
+    
+    # Task 3.1: Load initial state from DB
+    await rsi_strategy.load_initial_state(symbols)
     
     # Task 2.1 & 2.2: Warm-up historical data
     for symbol in symbols:
@@ -70,9 +74,8 @@ async def run_trading_bot():
         historical_klines = await market_service.get_historical_klines(symbol, "1m", limit=100)
         symbol_data = get_symbol_data(symbol)
         for k in historical_klines:
-            # k[4] is the close price in REST klines
             symbol_data.add_close(float(k[4]))
-        logger.info(f"Warm-up complete for {symbol}. RSI initialized: {symbol_data.get_rsi()}")
+        logger.info(f"Warm-up complete for {symbol}. RSI: {symbol_data.get_rsi()}")
 
     tasks = []
     for symbol in symbols:
@@ -82,14 +85,17 @@ async def run_trading_bot():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    # Task 4.1: Startup - Init DB
     logger.info("Application starting up...")
+    await db.connect()
+    
     bot_task = asyncio.create_task(run_trading_bot())
     yield
     # Shutdown
     logger.info("Application shutting down...")
     bot_task.cancel()
     await binance_client.close()
+    await db.disconnect()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
