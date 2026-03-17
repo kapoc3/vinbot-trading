@@ -25,7 +25,8 @@ class Settings(BaseSettings):
     USE_TESTNET: bool = True
     TRADING_SYMBOLS: str = "BTCUSDT,ETHUSDT"
     LOG_LEVEL: str = "INFO"
-    TRADING_STRATEGY: str = "RsiOnly" # RsiOnly | RsiWithDivergence | Auto
+    TRADING_STRATEGY: str = "RsiOnly" # RsiOnly | RsiWithDivergence | Auto | BollingerBands | MacdMaCross | Breakout
+    BREAKOUT_VOLUME_MULTIPLIER: float = 1.5
     
     # Persistence
     DATABASE_PATH: str = "data/vinbot.db"

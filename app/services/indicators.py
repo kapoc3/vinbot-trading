@@ -275,12 +275,41 @@ class TechnicalIndicators:
             "histogram": current_macd - signal_line
         }
 
+    @staticmethod
+    def calculate_donchian_channel(highs: List[float], lows: List[float], period: int = 20) -> Optional[Dict[str, float]]:
+        """
+        Calculate Donchian Channels.
+        Returns a dict with 'upper', 'middle', and 'lower' bands.
+        """
+        if len(highs) < period or len(lows) < period:
+            return None
+        
+        recent_highs = highs[-period:]
+        recent_lows = lows[-period:]
+        
+        upper = max(recent_highs)
+        lower = min(recent_lows)
+        
+        return {
+            "upper": upper,
+            "lower": lower,
+            "middle": (upper + lower) / 2
+        }
+
+    @staticmethod
+    def calculate_sma(data: List[float], period: int) -> Optional[float]:
+        """Calculate Simple Moving Average (SMA)."""
+        if len(data) < period:
+            return None
+        return sum(data[-period:]) / period
+
 class SymbolData:
     """Manages historical kline data for a specific symbol."""
     def __init__(self, max_history: int = 500):
         self.closes = deque(maxlen=max_history)
         self.highs = deque(maxlen=max_history)
         self.lows = deque(maxlen=max_history)
+        self.volumes = deque(maxlen=max_history)
         self.rsis = deque(maxlen=max_history)
         self.klines = deque(maxlen=max_history)
 
@@ -289,10 +318,12 @@ class SymbolData:
         close_price = float(kline.get("c", 0))
         high_price = float(kline.get("h", 0))
         low_price = float(kline.get("l", 0))
+        volume = float(kline.get("v", 0))
         
         self.closes.append(close_price)
         self.highs.append(high_price)
         self.lows.append(low_price)
+        self.volumes.append(volume)
         self.klines.append(kline)
         
         # Calculate current RSI and store it
@@ -341,6 +372,14 @@ class SymbolData:
     def get_macd(self, fast: int = 12, slow: int = 26, signal: int = 9) -> Optional[Dict[str, float]]:
         """Calculate MACD."""
         return TechnicalIndicators.calculate_macd(list(self.closes), fast, slow, signal)
+
+    def get_donchian_channel(self, period: int = 20) -> Optional[Dict[str, float]]:
+        """Calculate Donchian Channel."""
+        return TechnicalIndicators.calculate_donchian_channel(list(self.highs), list(self.lows), period)
+
+    def get_volume_sma(self, period: int = 20) -> Optional[float]:
+        """Calculate Simple Moving Average of volume."""
+        return TechnicalIndicators.calculate_sma(list(self.volumes), period)
 
 # Global store for symbol data
 market_indicators: Dict[str, SymbolData] = {}

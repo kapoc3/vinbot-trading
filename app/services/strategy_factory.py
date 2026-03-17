@@ -4,6 +4,7 @@ from app.services.rsi_strategy import RSIStrategy
 from app.services.divergence_strategy import RsiDivergenceStrategy
 from app.services.bollinger_strategy import BollingerBandsStrategy
 from app.services.macd_strategy import MacdMaCrossStrategy
+from app.services.breakout_strategy import BreakoutStrategy
 from app.services.regime_service import regime_service, MarketRegime
 from app.services.indicators import get_symbol_data
 from app.services.persistence import persistence
@@ -20,6 +21,7 @@ class StrategyManager:
         self.rsi_divergence = RsiDivergenceStrategy()
         self.bollinger = BollingerBandsStrategy()
         self.macd_cross = MacdMaCrossStrategy()
+        self.breakout = BreakoutStrategy()
         
         # Local cache for active strategies per symbol (for 'Auto' mode)
         self.symbol_strategies: Dict[str, Any] = {}
@@ -35,6 +37,8 @@ class StrategyManager:
                 return self.bollinger
             if self.strategy_type == "MacdMaCross":
                 return self.macd_cross
+            if self.strategy_type == "Breakout":
+                return self.breakout
             return self.rsi_only
 
         # Auto Mode Logic
@@ -91,6 +95,7 @@ class StrategyManager:
         await self.rsi_divergence.load_initial_state(symbols)
         await self.bollinger.load_initial_state(symbols)
         await self.macd_cross.load_initial_state(symbols)
+        await self.breakout.load_initial_state(symbols)
 
 strategy_manager = StrategyManager()
 # To maintain backward compatibility with main.py which expected 'current_strategy' as singleton:
@@ -137,6 +142,7 @@ class DynamicStrategyProxy:
         await strategy_manager.rsi_divergence.update_position(symbol, in_position)
         await strategy_manager.bollinger.update_position(symbol, in_position)
         await strategy_manager.macd_cross.update_position(symbol, in_position)
+        await strategy_manager.breakout.update_position(symbol, in_position)
         
         # Update high watermark state
         if in_position:

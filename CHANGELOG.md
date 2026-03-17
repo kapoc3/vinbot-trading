@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - **Dynamic Strategy Manager**: Implemented `StrategyManager` to orchestrate strategy switching at runtime without restarting the bot.
 - **Bollinger Bands Strategy**: Added `BollingerBandsStrategy` specifically optimized for ranging markets, combining price band breaches with RSI confirmation.
 - **MACD + MA Cross Strategy**: Added `MacdMaCrossStrategy` for heavy trending markets, featuring an EMA 200 trend filter and MACD signal crossovers.
+- **Volatility Breakout Strategy**: Added `BreakoutStrategy` using Donchian Channels and volume confirmation to capture explosive moves at the start of new trends.
 - **Dynamic ATR Trailing Stop**: New volatility-adjusted trailing stop mechanism that protects profits by following the price up at a distance of `3 * ATR` and forcing a sell on sharp reversals.
 - **Auto-Switching Mode**: Added `Auto` mode for `TRADING_STRATEGY` that automatically selects the best strategy based on the current market regime (MACD for ADX > 40, RSI Divergence for normal trends, Bollinger for ranges).
 - **Strategy Safety Lock**: Implemented a locking mechanism that prevents strategy switching while a symbol has an open position to maintain trade consistency.
