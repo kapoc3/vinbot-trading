@@ -14,9 +14,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Poetry
+RUN pip install --no-cache-dir poetry
+
+# Configure Poetry: Do not create a virtual environment inside the container
+RUN poetry config virtualenvs.create false
+
 # Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY pyproject.toml poetry.lock* ./
+RUN poetry install --no-root --only main
 
 # Copy project files
 COPY . .
