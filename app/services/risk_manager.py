@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from app.core.config import get_settings
 from app.services.persistence import persistence
 from app.services.notifications import notification_service
+from app.core.metrics import trading_pnl_daily
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ class RiskManager:
     async def reset_daily_stats(self):
         """Reset daily PnL and circuit breaker at 00:00 UTC."""
         self.daily_pnl = 0.0
+        trading_pnl_daily.set(0) # Reset Prometheus Gauge
         self.daily_loss_reached = False
         self.last_reset_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         await persistence.set_state("daily_loss_reached", False)
@@ -81,6 +83,7 @@ class RiskManager:
     async def update_daily_pnl(self, realized_pnl: float):
         """Track daily performance and trigger circuit breaker if needed."""
         self.daily_pnl += realized_pnl
+        trading_pnl_daily.set(self.daily_pnl) # Update Prometheus Gauge
         await persistence.set_state("daily_pnl", self.daily_pnl)
         
         if self.daily_pnl < -settings.MAX_DAILY_LOSS_PCT * 100: # Simulating $100 units for now

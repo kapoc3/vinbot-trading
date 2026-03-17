@@ -3,6 +3,8 @@ import logging
 from typing import Dict, Any, Optional
 from app.core.config import get_settings
 from app.core.security import generate_signature, get_timestamp
+import time
+from app.core.metrics import binance_api_latency
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -45,8 +47,11 @@ class BinanceClient:
             query_string = "&".join([f"{k}={v}" for k, v in params.items()])
             params["signature"] = generate_signature(query_string, self.secret_key)
 
+        start_time = time.perf_counter()
         try:
             response = await self.client.request(method, endpoint, params=params, headers=headers)
+            latency = time.perf_counter() - start_time
+            binance_api_latency.labels(endpoint=endpoint, method=method).observe(latency)
             
             # Implementation of task 2.3: Retry logic for -1021
             if response.status_code == 400:

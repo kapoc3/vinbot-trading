@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     # Persistence
     DATABASE_PATH: str = "data/vinbot.db"
 
+    # Observability
+    OTLP_ENDPOINT: str = "http://tempo:4317"
+    PROMETHEUS_METRICS_PATH: str = "/metrics"
+
     @property
     def BINANCE_BASE_URL(self) -> str:
         return "https://testnet.binance.vision/api" if self.USE_TESTNET else "https://api.binance.com"

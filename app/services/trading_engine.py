@@ -5,6 +5,7 @@ from app.services.binance_client import binance_client
 from app.services.persistence import persistence
 from app.services.risk_manager import risk_manager
 from app.services.notifications import notification_service
+from app.core.metrics import trading_orders_total
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,9 @@ class TradingEngine:
             exec_price = float(order.get("price", 0) or order.get("fills", [{}])[0].get("price", 0))
             exec_qty = float(order.get("executedQty", quantity))
             await notification_service.notify_order(symbol, side, exec_price, exec_qty, rsi=rsi)
+            
+            # Prometheus Counter
+            trading_orders_total.labels(symbol=symbol, side=side).inc()
             
             return order
         except Exception as e:

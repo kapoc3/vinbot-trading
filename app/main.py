@@ -10,9 +10,22 @@ from app.services.market_data import market_service
 from app.core.database import db
 from app.services.risk_manager import risk_manager
 from app.services.notifications import notification_service
+from app.core.observability import setup_observability
+from app.core.metrics import trading_rsi
 
 settings = get_settings()
-logging.basicConfig(level=settings.LOG_LEVEL)
+
+# Setup logging to both console and file
+import os
+os.makedirs("logs", exist_ok=True)
+logging.basicConfig(
+    level=settings.LOG_LEVEL,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("logs/bot.log")
+    ]
+)
 logger = logging.getLogger(__name__)
 
 from app.services.trading_engine import trading_engine
@@ -52,6 +65,9 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
         rsi = symbol_data.get_rsi()
         
         if rsi:
+            # Update Prometheus Gauge
+            trading_rsi.labels(symbol=symbol).set(rsi)
+            
             logger.info(f"Kline Closed | {symbol} RSI: {rsi:.2f}")
             # Task 4.1 & 4.2: Analyze and trigger orders
             signal = rsi_strategy.analyze(symbol)
@@ -124,5 +140,8 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     lifespan=lifespan
 )
+
+# Task 1.2: Setup Observability (Prometheus + OTLP)
+setup_observability(app)
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
