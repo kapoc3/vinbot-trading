@@ -2,6 +2,7 @@ import logging
 from typing import Dict, Any, Optional, List
 from app.services.rsi_strategy import RSIStrategy
 from app.services.divergence_strategy import RsiDivergenceStrategy
+from app.services.bollinger_strategy import BollingerBandsStrategy
 from app.services.regime_service import regime_service, MarketRegime
 from app.core.config import get_settings
 
@@ -14,6 +15,7 @@ class StrategyManager:
         self.strategy_type = settings.TRADING_STRATEGY
         self.rsi_only = RSIStrategy()
         self.rsi_divergence = RsiDivergenceStrategy()
+        self.bollinger = BollingerBandsStrategy()
         
         # Local cache for active strategies per symbol (for 'Auto' mode)
         self.symbol_strategies: Dict[str, Any] = {}
@@ -23,7 +25,11 @@ class StrategyManager:
     def get_strategy(self, symbol: str) -> Any:
         """Returns the appropriate strategy instance for a given symbol."""
         if self.strategy_type != "Auto":
-            return self.rsi_divergence if self.strategy_type == "RsiWithDivergence" else self.rsi_only
+            if self.strategy_type == "RsiWithDivergence":
+                return self.rsi_divergence
+            if self.strategy_type == "BollingerBands":
+                return self.bollinger
+            return self.rsi_only
 
         # Auto Mode Logic
         if symbol not in self.symbol_strategies:
@@ -56,7 +62,7 @@ class StrategyManager:
         if regime == MarketRegime.TRENDING:
             new_strat = self.rsi_divergence
         elif regime == MarketRegime.RANGING:
-            new_strat = self.rsi_only
+            new_strat = self.bollinger
         elif regime == MarketRegime.HIGH_VOLATILITY:
             # Could add a 'Pause' strategy or just stay in safety
             new_strat = self.rsi_divergence # Trend confirmers are safer in high volatility
@@ -72,6 +78,7 @@ class StrategyManager:
         """Load states for both strategies."""
         await self.rsi_only.load_initial_state(symbols)
         await self.rsi_divergence.load_initial_state(symbols)
+        await self.bollinger.load_initial_state(symbols)
 
 strategy_manager = StrategyManager()
 # To maintain backward compatibility with main.py which expected 'current_strategy' as singleton:
@@ -83,6 +90,7 @@ class DynamicStrategyProxy:
     async def update_position(self, symbol: str, in_position: bool):
         await strategy_manager.rsi_only.update_position(symbol, in_position)
         await strategy_manager.rsi_divergence.update_position(symbol, in_position)
+        await strategy_manager.bollinger.update_position(symbol, in_position)
 
     async def load_initial_state(self, symbols: List[str]):
         await strategy_manager.load_initial_states(symbols)

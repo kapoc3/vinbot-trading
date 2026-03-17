@@ -196,6 +196,28 @@ class TechnicalIndicators:
             
         return adx
 
+    @staticmethod
+    def calculate_bollinger_bands(prices: List[float], period: int = 20, std_dev_multiplier: float = 2.0) -> Optional[Dict[str, float]]:
+        """
+        Calculate Bollinger Bands.
+        Returns a dict with 'upper', 'middle' (SMA), and 'lower' bands.
+        """
+        if len(prices) < period:
+            return None
+            
+        recent_prices = prices[-period:]
+        sma = sum(recent_prices) / period
+        
+        # Standard deviation calculation
+        variance = sum((x - sma) ** 2 for x in recent_prices) / period
+        std_dev = variance ** 0.5
+        
+        return {
+            "middle": sma,
+            "upper": sma + (std_dev_multiplier * std_dev),
+            "lower": sma - (std_dev_multiplier * std_dev)
+        }
+
 class SymbolData:
     """Manages historical kline data for a specific symbol."""
     def __init__(self, max_history: int = 150):
@@ -250,6 +272,10 @@ class SymbolData:
     def get_atr(self, period: int = 14) -> Optional[float]:
         """Calculate current ATR."""
         return TechnicalIndicators.calculate_atr(list(self.highs), list(self.lows), list(self.closes), period)
+
+    def get_bollinger_bands(self, period: int = 20, std_dev_multiplier: float = 2.0) -> Optional[Dict[str, float]]:
+        """Calculate Bollinger Bands for the current history."""
+        return TechnicalIndicators.calculate_bollinger_bands(list(self.closes), period, std_dev_multiplier)
 
 # Global store for symbol data
 market_indicators: Dict[str, SymbolData] = {}
