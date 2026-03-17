@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     ENABLE_VOLUME_CONFIRMATION: bool = False
     VWAP_PERIOD: int = 50
     
+    # Partial Take Profit Config
+    # Format: "pnl_pct1:sell_pct1,pnl_pct2:sell_pct2"
+    # Example: "5.0:50,10.0:25" -> At 5% gain sell 50% of the ORIGINAL size, at 10% gain sell 25% more.
+    PARTIAL_TP_LEVELS: str = "5.0:50,10.0:25"
+    MOVE_SL_TO_BE_ON_TP1: bool = True
+    
     # Persistence
     DATABASE_PATH: str = "data/vinbot.db"
 

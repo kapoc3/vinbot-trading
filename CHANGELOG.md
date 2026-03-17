@@ -9,6 +9,8 @@ All notable changes to this project will be documented in this file.
 - **Dynamic Strategy Manager**: Implemented `StrategyManager` to orchestrate strategy switching at runtime without restarting the bot.
 - **Bollinger Bands Strategy**: Added `BollingerBandsStrategy` specifically optimized for ranging markets, combining price band breaches with RSI confirmation.
 - **MACD + MA Cross Strategy**: Added `MacdMaCrossStrategy` for heavy trending markets, featuring an EMA 200 trend filter and MACD signal crossovers.
+- **Partial Take Profit (Scaled Exits)**: Added support for selling portions of a position at multiple profit targets (e.g., sell 50% at +5%, 25% at +10%).
+- **Break-Even Stop Loss**: Automatically moves the hard stop-loss to the entry price once the first profit target is hit, ensuring risk-free trades.
 - **Volume Confirmation Filter**: Implemented a global veto layer using VWAP and OBV trend to filter out "fake" buy signals in low-liquidity environments.
 - **Volatility Breakout Strategy**: Added `BreakoutStrategy` using Donchian Channels and volume confirmation to capture explosive moves at the start of new trends.
 - **Dynamic ATR Trailing Stop**: New volatility-adjusted trailing stop mechanism that protects profits by following the price up at a distance of `3 * ATR` and forcing a sell on sharp reversals.
