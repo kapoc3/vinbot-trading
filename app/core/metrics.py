@@ -22,6 +22,13 @@ trading_pnl_daily = Gauge(
     "Accumulated daily PnL in reference currency",
 )
 
+# Market Regime Gauge (0: Unknown, 1: Ranging, 2: Trending, 3: HighVol)
+trading_market_regime = Gauge(
+    "vinbot_market_regime",
+    "Current market regime classification (1: Ranging, 2: Trending, 3: HighVol)",
+    ["symbol"]
+)
+
 # --- Technical Metrics ---
 
 # Binance API Latency

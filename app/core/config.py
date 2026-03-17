@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     USE_TESTNET: bool = True
     TRADING_SYMBOLS: str = "BTCUSDT,ETHUSDT"
     LOG_LEVEL: str = "INFO"
-    TRADING_STRATEGY: str = "RsiOnly" # RsiOnly | RsiWithDivergence
+    TRADING_STRATEGY: str = "RsiOnly" # RsiOnly | RsiWithDivergence | Auto
     
     # Persistence
     DATABASE_PATH: str = "data/vinbot.db"

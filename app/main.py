@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 from app.services.trading_engine import trading_engine
 from app.services.indicators import get_symbol_data
 
-from app.services.strategy_factory import current_strategy as rsi_strategy
+from app.services.strategy_factory import current_strategy as rsi_strategy, strategy_manager
 
 async def dummy_strategy_callback(data: Dict[str, Any]):
     """Example callback for the trading loop."""
@@ -61,7 +61,11 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
     if is_closed:
         # Task 2.3: Update indicator history on kline close
         symbol_data = get_symbol_data(symbol)
-        symbol_data.add_close(close_price)
+        symbol_data.add_kline(kline)
+        
+        # Task 3.3: Re-evaluate market regime and potentally switch strategy
+        strategy_manager.re_evaluate_regime(symbol)
+        
         rsi = symbol_data.get_rsi()
         
         if rsi:
