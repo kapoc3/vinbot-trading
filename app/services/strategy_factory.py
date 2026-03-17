@@ -154,6 +154,16 @@ class DynamicStrategyProxy:
                 logger.info(f"VETO | {symbol} BUY vetoed: OBV {obv:.2f} below average {obv_sma:.2f}")
                 return None
 
+        # 4. BTC Directional Filter Veto (Macro Regime)
+        if signal == "BUY" and settings.ENABLE_BTC_DIRECTIONAL_FILTER:
+            btc_data = get_symbol_data("BTCUSDT")
+            btc_ema = btc_data.get_ema(settings.BTC_DIRECTION_EMA)
+            current_btc_price = btc_data.closes[-1] if btc_data.closes else 0.0
+            
+            if btc_ema is not None and current_btc_price < btc_ema:
+                logger.info(f"VETO | {symbol} BUY vetoed: BTC Macro Trend is Bearish (Price {current_btc_price:.2f} < EMA {btc_ema:.2f})")
+                return None
+
         return signal
     
     async def update_position(self, symbol: str, in_position: bool):

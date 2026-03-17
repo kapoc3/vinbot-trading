@@ -131,6 +131,10 @@ async def run_trading_bot():
     await binance_client.sync_time()
     
     symbols = settings.TRADING_SYMBOLS.split(",")
+    if settings.ENABLE_BTC_DIRECTIONAL_FILTER:
+        if "BTCUSDT" not in symbols:
+            logger.info("Initializing BTCUSDT for directional filter...")
+            symbols.append("BTCUSDT")
     
     # Load initial states for recovery
     await rsi_strategy.load_initial_state(symbols)

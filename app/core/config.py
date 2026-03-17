@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     PARTIAL_TP_LEVELS: str = "5.0:50,10.0:25"
     MOVE_SL_TO_BE_ON_TP1: bool = True
     
+    # BTC Directional Filter
+    ENABLE_BTC_DIRECTIONAL_FILTER: bool = True
+    BTC_DIRECTION_EMA: int = 200
+    
     # Persistence
     DATABASE_PATH: str = "data/vinbot.db"
 
