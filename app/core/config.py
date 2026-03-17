@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     ENABLE_BTC_DIRECTIONAL_FILTER: bool = True
     BTC_DIRECTION_EMA: int = 200
     
+    # Dynamic Position Sizing
+    ENABLE_DYNAMIC_SIZING: bool = True
+    ALLOCATED_CAPITAL: float = 1000.0
+    RISK_PER_TRADE_PCT: float = 1.0
+    
     # Persistence
     DATABASE_PATH: str = "data/vinbot.db"
 

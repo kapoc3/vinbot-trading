@@ -93,15 +93,26 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
                 
                 # Determine Quantity
                 if side == "BUY":
-                    # For BUY, we use a fixed safety quantity for now
-                    quantity = 0.01 if "BTC" in symbol else 0.1
+                    if settings.ENABLE_DYNAMIC_SIZING:
+                        # Calculate SL price to determine risk distance
+                        sl_price = close_price * (1 - settings.STOP_LOSS_PCT / 100.0)
+                        raw_qty = risk_manager.calculate_position_size(symbol, close_price, sl_price)
+                        
+                        # Format for Binance LOT_SIZE
+                        lot_info = await binance_client.get_exchange_info(symbol)
+                        step_size = float(lot_info.get("stepSize", 0.000001))
+                        quantity = binance_client.round_step(raw_qty, step_size)
+                        
+                        logger.info(f"SIZING | Calculated Dynamic Qty for {symbol}: {quantity} (Risk: {settings.RISK_PER_TRADE_PCT}%)")
+                    else:
+                        # Fallback to fixed sizes
+                        quantity = 0.01 if "BTC" in symbol else 0.1
                 else:
                     # For SELL, we must only sell what we actually have left in risk_manager
                     pos_meta = risk_manager.position_data.get(symbol)
                     if pos_meta:
                         quantity = pos_meta["current_qty"]
                     else:
-                        # Fallback for unexpected states
                         quantity = 0.01 if "BTC" in symbol else 0.1
 
                 try:

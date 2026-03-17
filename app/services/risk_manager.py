@@ -168,5 +168,26 @@ class RiskManager:
         """Check if new trades are allowed based on daily risk."""
         return not self.daily_loss_reached
 
+    def calculate_position_size(self, symbol: str, entry_price: float, sl_price: float) -> float:
+        """
+        Calculate the quantity to purchase based on risk-per-trade.
+        Formula: (Allocated Capital * Risk %) / (Entry Price - Stop Loss Price)
+        """
+        try:
+            risk_pct = settings.RISK_PER_TRADE_PCT / 100.0
+            capital_at_risk = settings.ALLOCATED_CAPITAL * risk_pct
+            
+            price_risk_per_unit = abs(entry_price - sl_price)
+            
+            if price_risk_per_unit <= 0:
+                logger.error(f"RISK | Sizing failed for {symbol}: SL price {sl_price} is >= Entry {entry_price}")
+                return 0.0
+            
+            raw_qty = capital_at_risk / price_risk_per_unit
+            return float(raw_qty)
+        except Exception as e:
+            logger.error(f"RISK | Error calculating position size for {symbol}: {e}")
+            return 0.0
+
 # Global instance
 risk_manager = RiskManager()
