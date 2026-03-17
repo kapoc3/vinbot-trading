@@ -4,6 +4,7 @@ from app.core.config import get_settings
 from app.services.binance_client import binance_client
 from app.services.persistence import persistence
 from app.services.risk_manager import risk_manager
+from app.services.notifications import notification_service
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,11 @@ class TradingEngine:
 
             # Task 3.3: Save to persistent database
             await persistence.save_order(order, rsi=rsi)
+            
+            # Task 2.1: Notify via Telegram
+            exec_price = float(order.get("price", 0) or order.get("fills", [{}])[0].get("price", 0))
+            exec_qty = float(order.get("executedQty", quantity))
+            await notification_service.notify_order(symbol, side, exec_price, exec_qty, rsi=rsi)
             
             return order
         except Exception as e:

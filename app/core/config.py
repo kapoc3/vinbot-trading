@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     TAKE_PROFIT_PCT: float = 5.0
     MAX_DAILY_LOSS_PCT: float = 5.0
     
+    # Notifications
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_CHAT_ID: str = ""
+    
     # Binance Credentials
     BINANCE_API_KEY: str = ""
     BINANCE_SECRET_KEY: str = ""

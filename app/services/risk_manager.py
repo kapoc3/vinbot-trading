@@ -3,6 +3,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 from app.core.config import get_settings
 from app.services.persistence import persistence
+from app.services.notifications import notification_service
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -41,10 +42,10 @@ class RiskManager:
         self.daily_pnl = 0.0
         self.daily_loss_reached = False
         self.last_reset_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        await persistence.set_state("daily_pnl", 0.0)
         await persistence.set_state("daily_loss_reached", False)
         await persistence.set_state("last_reset_date", self.last_reset_date)
         logger.info("RISK | Daily stats reset for new day.")
+        await notification_service.notify_status("Daily stats reset for new day")
 
     async def set_entry_price(self, symbol: str, price: float):
         """Update and persist the entry price for a symbol."""
@@ -59,7 +60,7 @@ class RiskManager:
         key = f"{symbol.lower()}_entry_price"
         await persistence.set_state(key, 0.0)
 
-    def check_sl_tp(self, symbol: str, current_price: float) -> Optional[str]:
+    def check_sl_tp(self, symbol: str, current_price: float) -> Optional[Dict[str, Any]]:
         """Task 2.2: Check if Stop Loss or Take Profit is hit."""
         entry_price = self.entry_prices.get(symbol)
         if not entry_price or entry_price == 0:
@@ -69,11 +70,11 @@ class RiskManager:
         
         if pnl_pct <= -settings.STOP_LOSS_PCT:
             logger.warning(f"RISK | STOP LOSS triggered for {symbol} at {current_price} (PnL: {pnl_pct:.2f}%)")
-            return "STOP_LOSS"
+            return {"signal": "STOP_LOSS", "pnl": pnl_pct}
             
         if pnl_pct >= settings.TAKE_PROFIT_PCT:
             logger.info(f"RISK | TAKE PROFIT reached for {symbol} at {current_price} (PnL: {pnl_pct:.2f}%)")
-            return "TAKE_PROFIT"
+            return {"signal": "TAKE_PROFIT", "pnl": pnl_pct}
             
         return None
 
@@ -82,13 +83,11 @@ class RiskManager:
         self.daily_pnl += realized_pnl
         await persistence.set_state("daily_pnl", self.daily_pnl)
         
-        # Simple balance check (needs current account balance for true % drawdown)
-        # For now, we assume a reference balance for the daily limit
-        # In a real app, we'd fetch balance at 00:00 UTC
         if self.daily_pnl < -settings.MAX_DAILY_LOSS_PCT * 100: # Simulating $100 units for now
             self.daily_loss_reached = True
             await persistence.set_state("daily_loss_reached", True)
             logger.error(f"RISK | CIRCUIT BREAKER! Daily loss limit reached: {self.daily_pnl:.2f}")
+            await notification_service.notify_status(f"CIRCUIT BREAKER reached! Daily Loss: {self.daily_pnl:.2f}")
 
     def is_trading_allowed(self) -> bool:
         """Task 3.1: Check if new trades are allowed based on daily risk."""

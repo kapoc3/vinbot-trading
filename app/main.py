@@ -9,6 +9,7 @@ from app.services.binance_client import binance_client
 from app.services.market_data import market_service
 from app.core.database import db
 from app.services.risk_manager import risk_manager
+from app.services.notifications import notification_service
 
 settings = get_settings()
 logging.basicConfig(level=settings.LOG_LEVEL)
@@ -27,10 +28,15 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
     is_closed = kline.get("x", False)
     
     # Task 2.2: Real-time SL/TP check on every pricing tick
-    risk_signal = risk_manager.check_sl_tp(symbol, close_price)
-    if risk_signal and trading_engine.is_running:
+    risk_res = risk_manager.check_sl_tp(symbol, close_price)
+    if risk_res and trading_engine.is_running:
+        risk_signal = risk_res["signal"]
+        pnl = risk_res["pnl"]
         logger.warning(f"RISK | Action {risk_signal} triggered for {symbol}")
         try:
+            # Task 2.2: Notify risk BEFORE liquidation to explain why
+            await notification_service.notify_risk(risk_signal, symbol, close_price, pnl)
+            
             # Liquidate position immediately
             order = await trading_engine.place_market_order(symbol, "SELL", quantity=0.01, rsi=None)
             await rsi_strategy.update_position(symbol, False)
@@ -103,11 +109,13 @@ async def lifespan(app: FastAPI):
     # Task 4.1: Startup - Init DB
     logger.info("Application starting up...")
     await db.connect()
+    await notification_service.notify_status("ONLINE and monitoring markets")
     
     bot_task = asyncio.create_task(run_trading_bot())
     yield
     # Shutdown
     logger.info("Application shutting down...")
+    await notification_service.notify_status("OFFLINE / shutting down")
     bot_task.cancel()
     await binance_client.close()
     await db.disconnect()

@@ -4,6 +4,7 @@ from app.services.account_manager import account_manager
 from app.services.trading_engine import trading_engine
 from app.core.database import db
 from app.services.risk_manager import risk_manager
+from app.services.notifications import notification_service
 from typing import Dict, Any, List
 
 router = APIRouter()
