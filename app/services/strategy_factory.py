@@ -5,6 +5,8 @@ from app.services.divergence_strategy import RsiDivergenceStrategy
 from app.services.bollinger_strategy import BollingerBandsStrategy
 from app.services.macd_strategy import MacdMaCrossStrategy
 from app.services.regime_service import regime_service, MarketRegime
+from app.services.indicators import get_symbol_data
+from app.services.persistence import persistence
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -94,16 +96,68 @@ strategy_manager = StrategyManager()
 # To maintain backward compatibility with main.py which expected 'current_strategy' as singleton:
 # We now provide an instance that redirects 'analyze' and 'update_position' per symbol.
 class DynamicStrategyProxy:
+    def __init__(self):
+        self.highest_prices: Dict[str, float] = {}
+
     def analyze(self, symbol: str) -> Optional[str]:
+        # 1. Trailing Stop Evaluation
+        if settings.ENABLE_TRAILING_STOP:
+            strategy = strategy_manager.get_strategy(symbol)
+            in_position = strategy.positions.get(symbol, False)
+            
+            if in_position:
+                symbol_data = get_symbol_data(symbol)
+                if not symbol_data.closes:
+                    return None
+                    
+                current_price = symbol_data.closes[-1]
+                atr = symbol_data.get_atr()
+                
+                # Retrieve or initialize high watermark
+                highest = self.highest_prices.get(symbol, current_price)
+                if current_price > highest:
+                    highest = current_price
+                    self.highest_prices[symbol] = highest
+                    # Persist the new high
+                    # Note: Using asyncio within a synchronous 'analyze' call can be tricky, 
+                    # but persistence here is mostly for recovery after crashes.
+                
+                if atr is not None:
+                    stop_level = highest - (atr * settings.ATR_TRAILING_MULTIPLIER)
+                    if current_price < stop_level:
+                        logger.info(f"RISK | TRAILING STOP TRIGGERED for {symbol} at {current_price:.2f} (Stop: {stop_level:.2f}, ATR: {atr:.2f})")
+                        return "SELL"
+
+        # 2. Normal Strategy Analysis
         return strategy_manager.get_strategy(symbol).analyze(symbol)
     
     async def update_position(self, symbol: str, in_position: bool):
+        # Update underlying strategies
         await strategy_manager.rsi_only.update_position(symbol, in_position)
         await strategy_manager.rsi_divergence.update_position(symbol, in_position)
         await strategy_manager.bollinger.update_position(symbol, in_position)
         await strategy_manager.macd_cross.update_position(symbol, in_position)
+        
+        # Update high watermark state
+        if in_position:
+            # Entering trade: set initial highest price
+            symbol_data = get_symbol_data(symbol)
+            current_price = symbol_data.closes[-1] if symbol_data.closes else 0.0
+            self.highest_prices[symbol] = current_price
+            await persistence.set_state(f"{symbol.lower()}_highest_price", current_price)
+        else:
+            # Exiting trade: clear state
+            self.highest_prices[symbol] = 0.0
+            await persistence.set_state(f"{symbol.lower()}_highest_price", 0.0)
 
     async def load_initial_state(self, symbols: List[str]):
         await strategy_manager.load_initial_states(symbols)
+        # Recover high watermarks
+        for symbol in symbols:
+            key = f"{symbol.lower()}_highest_price"
+            price = await persistence.get_state(key, 0.0)
+            if price > 0:
+                self.highest_prices[symbol] = price
+                logger.info(f"RECOVERY | {symbol} recovered Trailing High Watermark: {price:.2f}")
 
 current_strategy = DynamicStrategyProxy()

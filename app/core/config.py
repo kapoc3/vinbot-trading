@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     STOP_LOSS_PCT: float = 2.0
     TAKE_PROFIT_PCT: float = 5.0
     MAX_DAILY_LOSS_PCT: float = 5.0
+    ENABLE_TRAILING_STOP: bool = True
+    ATR_TRAILING_MULTIPLIER: float = 3.0
     
     # Notifications
     TELEGRAM_BOT_TOKEN: str = ""
