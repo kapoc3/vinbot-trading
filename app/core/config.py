@@ -21,8 +21,9 @@ class Settings(BaseSettings):
     
     # Bot Config
     USE_TESTNET: bool = True
-    TRADING_SYMBOLS: str = "BTCUSDT"
+    TRADING_SYMBOLS: str = "BTCUSDT,ETHUSDT"
     LOG_LEVEL: str = "INFO"
+    TRADING_STRATEGY: str = "RsiOnly" # RsiOnly | RsiWithDivergence
     
     # Persistence
     DATABASE_PATH: str = "data/vinbot.db"

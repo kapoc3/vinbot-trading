@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 from app.services.trading_engine import trading_engine
 from app.services.indicators import get_symbol_data
 
-from app.services.rsi_strategy import rsi_strategy
+from app.services.strategy_factory import current_strategy as rsi_strategy
 
 async def dummy_strategy_callback(data: Dict[str, Any]):
     """Example callback for the trading loop."""
