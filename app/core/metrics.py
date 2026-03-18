@@ -37,3 +37,10 @@ binance_api_latency = Histogram(
     "Latency of Binance API requests",
     ["endpoint", "method"]
 )
+
+# Wallet Balance Gauge
+binance_wallet_balance = Gauge(
+    "vinbot_wallet_balance",
+    "Real-time wallet balance from Binance",
+    ["asset"]
+)

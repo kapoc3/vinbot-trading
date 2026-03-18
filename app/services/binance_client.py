@@ -42,31 +42,33 @@ class BinanceClient:
         self, 
         method: str, 
         endpoint: str, 
-        params: Dict[str, Any] = {}, 
+        params: Optional[Dict[str, Any]] = None, 
         signed: bool = False
     ) -> Dict[str, Any]:
         """Base request method with signature and error handling."""
         headers = {"X-MBX-APIKEY": self.api_key}
+        # Avoid mutable default argument bug
+        current_params = params.copy() if params else {}
         
-        # Ensure endpoint starts with /api/v3 if not present (to be robust)
+        # Ensure endpoint is correctly formatted for Binance API
         if not endpoint.startswith("/api"):
-            if not endpoint.startswith("/"):
-                endpoint = f"/api/v3/{endpoint}"
-            else:
+            if endpoint.startswith("/v3"):
                 endpoint = f"/api{endpoint}"
-        elif not endpoint.startswith("/api/v3"):
-            # If it starts with /api but not /api/v3 (edge case)
-            pass 
+            else:
+                endpoint = f"/api/v3/{endpoint.lstrip('/')}"
         
-
         if signed:
-            params["timestamp"] = self._get_adjusted_timestamp()
-            query_string = "&".join([f"{k}={v}" for k, v in params.items()])
-            params["signature"] = generate_signature(query_string, self.secret_key)
+            current_params["timestamp"] = self._get_adjusted_timestamp()
+            current_params["recvWindow"] = 10000 # Increased for stability
+            # Crucial: the query string used for signing MUST match what is sent
+            query_string = "&".join([f"{k}={v}" for k, v in current_params.items()])
+            current_params["signature"] = generate_signature(query_string, self.secret_key)
 
         start_time = time.perf_counter()
         try:
-            response = await self.client.request(method, endpoint, params=params, headers=headers)
+            # Use query string instead of params to be 100% sure about order and direct control
+            # but httpx handles dicts fine for the send part.
+            response = await self.client.request(method, endpoint, params=current_params, headers=headers)
             latency = time.perf_counter() - start_time
             binance_api_latency.labels(endpoint=endpoint, method=method).observe(latency)
             
@@ -98,6 +100,13 @@ class BinanceClient:
                 if lot_size:
                     self.exchange_info[symbol] = lot_size
         return self.exchange_info.get(symbol, {})
+    
+    async def get_asset_balance(self, asset: str) -> Dict[str, str]:
+        """Fetch balance for a specific asset."""
+        account = await self.request("GET", "/api/v3/account", signed=True)
+        balances = account.get("balances", [])
+        asset_bal = next((b for b in balances if b["asset"] == asset.upper()), {"free": "0.0", "locked": "0.0"})
+        return asset_bal
 
     @staticmethod
     def round_step(quantity: float, step_size: float) -> str:

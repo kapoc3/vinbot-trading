@@ -81,7 +81,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 0
+        "y": 4
       },
       "id": 1,
       "options": {
@@ -143,7 +143,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 0
+        "y": 4
       },
       "id": 2,
       "options": {
@@ -340,9 +340,21 @@
           "mappings": [
             {
               "options": {
-                "0": { "color": "red", "index": 0, "text": "Bear" },
-                "1": { "color": "yellow", "index": 1, "text": "Sideways" },
-                "2": { "color": "green", "index": 2, "text": "Bull" }
+                "0": {
+                  "color": "red",
+                  "index": 0,
+                  "text": "Bear"
+                },
+                "1": {
+                  "color": "yellow",
+                  "index": 1,
+                  "text": "Sideways"
+                },
+                "2": {
+                  "color": "green",
+                  "index": 2,
+                  "text": "Bull"
+                }
               },
               "type": "value"
             }
@@ -350,7 +362,10 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null }
+              {
+                "color": "red",
+                "value": null
+              }
             ]
           }
         },
@@ -469,12 +484,72 @@
             "uid": "SQLite"
           },
           "editorMode": "code",
-           "rawSql": "SELECT symbol, side, price, quantity, rsi, timestamp FROM orders WHERE symbol LIKE '%' || '$symbol' || '%' OR '$symbol' = 'all' ORDER BY timestamp DESC",
+          "rawSql": "SELECT symbol, side, price, quantity, rsi, timestamp FROM orders WHERE symbol LIKE '%' || '$symbol' || '%' OR '$symbol' = 'all' ORDER BY timestamp DESC",
           "refId": "A"
         }
       ],
       "title": "Trade History (DB)",
       "type": "table"
+    },
+    {
+      "id": 7,
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "type": "stat",
+      "title": "Binance Real Wallet Balance",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(vinbot_wallet_balance)",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "super-light-green"
+          },
+          "unit": "currencyUSD",
+          "decimals": 2
+        },
+        "overrides": []
+      }
     }
   ],
   "schemaVersion": 38,

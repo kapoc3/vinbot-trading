@@ -58,10 +58,21 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
             realized_pnl_units = (close_price - entry_p) * qty_to_sell
             
             # Notify risk BEFORE liquidation
-            await notification_service.notify_risk(risk_signal, symbol, close_price, pnl)
+            quote_asset = "USDC" if "USDC" in symbol else "USDT"
+            bal_info = await binance_client.get_asset_balance(quote_asset)
+            current_bal = float(bal_info.get("free", 0.0))
+            await notification_service.notify_risk(risk_signal, symbol, close_price, pnl, balance=current_bal, quote_asset=quote_asset)
+            
+            # 1.2 Format for Binance LOT_SIZE before selling
+            lot_info = await binance_client.get_exchange_info(symbol)
+            step_size = float(lot_info.get("stepSize", 0.000001))
+            quantity = binance_client.round_step(qty_to_sell, step_size)
+            
+            # Record Realized PnL summary
+            await risk_manager.update_daily_pnl(realized_pnl_units)
             
             # Place the SELL order
-            order = await trading_engine.place_market_order(symbol, "SELL", quantity=qty_to_sell, rsi=None)
+            order = await trading_engine.place_market_order(symbol, "SELL", quantity=quantity, rsi=None)
             
             if risk_signal == "PARTIAL_TP":
                 # Update partial state, move SL if needed
@@ -182,6 +193,19 @@ async def background_report_task():
         except Exception as e:
             logger.error(f"Error in background_report_task: {e}")
 
+async def background_metrics_task():
+    """Periodic task to update live balance metrics for Grafana."""
+    from app.core.metrics import binance_wallet_balance
+    while True:
+        try:
+            await asyncio.sleep(60) # 60 seconds
+            quote_asset = "USDC" if any("USDC" in s for s in settings.TRADING_SYMBOLS.split(",")) else "USDT"
+            bal_info = await binance_client.get_asset_balance(quote_asset)
+            current_bal = float(bal_info.get("free", 0.0))
+            binance_wallet_balance.labels(asset=quote_asset).set(current_bal)
+        except Exception as e:
+            logger.error(f"Error updating wallet balance metric: {e}")
+
 async def run_trading_bot():
     """Background task for the trading engine initialization and symbol loop."""
     logger.info("Starting Trading Bot background loop...")
@@ -228,12 +252,14 @@ async def lifespan(app: FastAPI):
     
     bot_task = asyncio.create_task(run_trading_bot())
     report_task = asyncio.create_task(background_report_task())
+    metrics_task = asyncio.create_task(background_metrics_task())
     yield
     # Shutdown
     logger.info("Application shutting down...")
     # await notification_service.notify_status("OFFLINE / shutting down")
     bot_task.cancel()
     report_task.cancel()
+    metrics_task.cancel()
     await binance_client.close()
     await db.disconnect()
 
