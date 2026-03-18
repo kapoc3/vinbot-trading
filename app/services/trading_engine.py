@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class TradingEngine:
     def __init__(self):
         self.order_history = []
-        self.is_running = False
+        self.is_running = True
 
     async def place_market_order(self, symbol: str, side: str, quantity: float, rsi: Optional[float] = None) -> Dict[str, Any]:
         """Place a MARKET order on Binance and persist the result."""

@@ -52,6 +52,11 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
         
         logger.warning(f"RISK | Action {risk_signal} triggered for {symbol}")
         try:
+            # 1.1 Calculate Realized Units for PnL (Estimated)
+            # PnL = (ClosePrice - EntryPrice) * Quantity
+            entry_p = risk_manager.entry_prices.get(symbol, 0)
+            realized_pnl_units = (close_price - entry_p) * qty_to_sell
+            
             # Notify risk BEFORE liquidation
             await notification_service.notify_risk(risk_signal, symbol, close_price, pnl)
             
@@ -67,6 +72,9 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
                 await rsi_strategy.update_position(symbol, False)
                 await risk_manager.clear_entry_price(symbol)
                 logger.info(f"RISK | Exit Order Successful: {order.get('orderId')}")
+            
+            # Record Realized PnL summary
+            await risk_manager.update_daily_pnl(realized_pnl_units)
                 
         except Exception as e:
             logger.error(f"RISK | Failed to execute risk exit for {symbol}: {e}")
@@ -105,15 +113,28 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
                         
                         logger.info(f"SIZING | Calculated Dynamic Qty for {symbol}: {quantity} (Risk: {settings.RISK_PER_TRADE_PCT}%)")
                     else:
-                        # Fallback to fixed sizes
-                        quantity = 0.01 if "BTC" in symbol else 0.1
+                        # Fixed order value approach (e.g. $10 USD)
+                        raw_qty = settings.FIXED_ORDER_VALUE_USDT / close_price
+                        
+                        # Format for Binance LOT_SIZE
+                        lot_info = await binance_client.get_exchange_info(symbol)
+                        step_size = float(lot_info.get("stepSize", 0.000001))
+                        quantity = binance_client.round_step(raw_qty, step_size)
+                        
+                        logger.info(f"SIZING | Fixed Order Value for {symbol} at {close_price}: {quantity} (Target: ${settings.FIXED_ORDER_VALUE_USDT}, Step: {step_size})")
                 else:
                     # For SELL, we must only sell what we actually have left in risk_manager
                     pos_meta = risk_manager.position_data.get(symbol)
                     if pos_meta:
-                        quantity = pos_meta["current_qty"]
+                        raw_qty = pos_meta["current_qty"]
+                        lot_info = await binance_client.get_exchange_info(symbol)
+                        step_size = float(lot_info.get("stepSize", 0.000001))
+                        quantity = binance_client.round_step(raw_qty, step_size)
                     else:
-                        quantity = 0.01 if "BTC" in symbol else 0.1
+                        logger.warning(f"EXECUTION | SELL Signal but NO position tracked in RiskManager for {symbol}. Resetting state.")
+                        # Auto-sync strategy state to avoid ghost signals
+                        await rsi_strategy.update_position(symbol, False)
+                        return
 
                 try:
                     logger.info(f"EXECUTION | Placing {side} order for {symbol} at {close_price} (Qty: {quantity})")
@@ -136,16 +157,46 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
         else:
             logger.info(f"Kline Closed | {symbol} (Waiting for more data...)")
 
+async def background_report_task():
+    """Periodic status report every 5 minutes."""
+    while True:
+        try:
+            await asyncio.sleep(300) # 5 minutes
+            pnl = risk_manager.daily_pnl
+            quote = "USDC" if any("USDC" in s for s in settings.TRADING_SYMBOLS.split(",")) else "USDT"
+            benchmark = f"BTC{quote}"
+            btc_rsi = get_symbol_data(benchmark).get_rsi()
+            status = "UP" if trading_engine.is_running else "IDLE"
+            
+            msg = f"📊 *VinBot Status Report*\n"
+            msg += f"PnL Daily: `{pnl:.2f} {quote}`\n"
+            if btc_rsi is not None:
+                msg += f"{benchmark} RSI: `{btc_rsi:.2f}`\n"
+            else:
+                msg += f"{benchmark} RSI: `N/A`\n"
+            msg += f"Status: `{status}`"
+            
+            if settings.ENABLE_PERIODIC_REPORTS:
+                await notification_service.send_message(msg)
+                logger.info("Periodic report sent to Telegram.")
+        except Exception as e:
+            logger.error(f"Error in background_report_task: {e}")
+
 async def run_trading_bot():
     """Background task for the trading engine initialization and symbol loop."""
     logger.info("Starting Trading Bot background loop...")
     await binance_client.sync_time()
     
     symbols = settings.TRADING_SYMBOLS.split(",")
+    # Initialize Benchmark Symbol (usually BTC pair) for filters
+    benchmark_symbol = "BTCUSDT" # Default
+    if any("USDC" in s for s in symbols):
+        benchmark_symbol = "BTCUSDC"
+        
     if settings.ENABLE_BTC_DIRECTIONAL_FILTER or settings.ENABLE_RELATIVE_STRENGTH_FILTER:
-        if "BTCUSDT" not in symbols:
-            logger.info("Initializing BTCUSDT for directional/relative strength filters...")
-            symbols.append("BTCUSDT")
+        if benchmark_symbol not in symbols:
+            logger.info(f"Initializing {benchmark_symbol} for directional/relative strength filters...")
+            symbols.append(benchmark_symbol)
     
     # Load initial states for recovery
     await rsi_strategy.load_initial_state(symbols)
@@ -173,14 +224,16 @@ async def run_trading_bot():
 async def lifespan(app: FastAPI):
     logger.info("Application starting up...")
     await db.connect()
-    await notification_service.notify_status("ONLINE and monitoring markets")
+    # await notification_service.notify_status("ONLINE and monitoring markets")
     
     bot_task = asyncio.create_task(run_trading_bot())
+    report_task = asyncio.create_task(background_report_task())
     yield
     # Shutdown
     logger.info("Application shutting down...")
-    await notification_service.notify_status("OFFLINE / shutting down")
+    # await notification_service.notify_status("OFFLINE / shutting down")
     bot_task.cancel()
+    report_task.cancel()
     await binance_client.close()
     await db.disconnect()
 

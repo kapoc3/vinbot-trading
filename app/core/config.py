@@ -42,8 +42,14 @@ class Settings(BaseSettings):
     
     # Dynamic Position Sizing
     ENABLE_DYNAMIC_SIZING: bool = True
+    FIXED_ORDER_VALUE_USDT: float = 10.0
     ALLOCATED_CAPITAL: float = 1000.0
     RISK_PER_TRADE_PCT: float = 1.0
+    
+    # Technical Indicators
+    RSI_PERIOD: int = 14
+    RSI_OVERBOUGHT: float = 70.0
+    RSI_OVERSOLD: float = 30.0
     
     # Relative Strength Filter
     ENABLE_RELATIVE_STRENGTH_FILTER: bool = True
@@ -55,10 +61,13 @@ class Settings(BaseSettings):
     # Observability
     OTLP_ENDPOINT: str = "http://tempo:4317"
     PROMETHEUS_METRICS_PATH: str = "/metrics"
+    
+    # Notification Toggles
+    ENABLE_PERIODIC_REPORTS: bool = True
 
     @property
     def BINANCE_BASE_URL(self) -> str:
-        return "https://testnet.binance.vision/api" if self.USE_TESTNET else "https://api.binance.com"
+        return "https://testnet.binance.vision" if self.USE_TESTNET else "https://api.binance.com"
 
     @property
     def BINANCE_WS_URL(self) -> str:

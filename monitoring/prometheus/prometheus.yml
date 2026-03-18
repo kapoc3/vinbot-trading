@@ -3,7 +3,12 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
-  - job_name: 'vinbot'
+  - job_name: 'vinbot-scalper'
     static_configs:
-      - targets: ['bot:8000']
+      - targets: ['bot-scalper:8000']
+    metrics_path: '/metrics'
+
+  - job_name: 'vinbot-classic'
+    static_configs:
+      - targets: ['bot-classic:8000']
     metrics_path: '/metrics'

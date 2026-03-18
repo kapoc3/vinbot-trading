@@ -156,29 +156,33 @@ class DynamicStrategyProxy:
 
         # 4. BTC Directional Filter Veto (Macro Regime)
         if signal == "BUY" and settings.ENABLE_BTC_DIRECTIONAL_FILTER:
-            btc_data = get_symbol_data("BTCUSDT")
+            quote = "USDC" if "USDC" in symbol else "USDT"
+            benchmark = f"BTC{quote}"
+            btc_data = get_symbol_data(benchmark)
             btc_ema = btc_data.get_ema(settings.BTC_DIRECTION_EMA)
             current_btc_price = btc_data.closes[-1] if btc_data.closes else 0.0
             
             if btc_ema is not None and current_btc_price < btc_ema:
-                logger.info(f"VETO | {symbol} BUY vetoed: BTC Macro Trend is Bearish (Price {current_btc_price:.2f} < EMA {btc_ema:.2f})")
+                logger.info(f"VETO | {symbol} BUY vetoed: {benchmark} Macro Trend is Bearish (Price {current_btc_price:.2f} < EMA {btc_ema:.2f})")
                 return None
 
         # 5. Relative Strength Filter Veto (vs BTC)
-        if signal == "BUY" and symbol != "BTCUSDT" and settings.ENABLE_RELATIVE_STRENGTH_FILTER:
+        quote = "USDC" if "USDC" in symbol else "USDT"
+        benchmark = f"BTC{quote}"
+        if signal == "BUY" and symbol != benchmark and settings.ENABLE_RELATIVE_STRENGTH_FILTER:
             symbol_data = get_symbol_data(symbol)
-            btc_data = get_symbol_data("BTCUSDT")
+            btc_data = get_symbol_data(benchmark)
             
             alt_roc = symbol_data.get_roc(settings.RS_LOOKBACK_PERIOD)
             btc_roc = btc_data.get_roc(settings.RS_LOOKBACK_PERIOD)
             
             if alt_roc is not None and btc_roc is not None:
                 if alt_roc < btc_roc:
-                    logger.info(f"VETO | {symbol} BUY vetoed: Relative Strength Underperformance (Alt ROC {alt_roc:.2f}% < BTC ROC {btc_roc:.2f}%)")
+                    logger.info(f"VETO | {symbol} BUY vetoed: Relative Strength Underperformance (Alt ROC {alt_roc:.2f}% < {benchmark} ROC {btc_roc:.2f}%)")
                     return None
             elif alt_roc is None or btc_roc is None:
                 # If we don't have enough data history yet, veto for safety
-                logger.warning(f"VETO | {symbol} BUY vetoed: Insufficient history for RS calculation")
+                logger.warning(f"VETO | {symbol} BUY vetoed: Insufficient history for RS calculation (Benchmark: {benchmark})")
                 return None
 
         return signal

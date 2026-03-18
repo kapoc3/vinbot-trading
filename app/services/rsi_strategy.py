@@ -8,10 +8,12 @@ logger = logging.getLogger(__name__)
 from app.services.persistence import persistence
 
 class RSIStrategy:
-    def __init__(self, rsi_period: int = 14, overbought: float = 70.0, oversold: float = 30.0):
-        self.rsi_period = rsi_period
-        self.overbought = overbought
-        self.oversold = oversold
+    def __init__(self, rsi_period: Optional[int] = None, overbought: Optional[float] = None, oversold: Optional[float] = None):
+        from app.core.config import get_settings
+        config = get_settings()
+        self.rsi_period = rsi_period or config.RSI_PERIOD
+        self.overbought = overbought or config.RSI_OVERBOUGHT
+        self.oversold = oversold or config.RSI_OVERSOLD
         # Flag to track if we are currently holding a position for a symbol
         self.positions: Dict[str, bool] = {}
 

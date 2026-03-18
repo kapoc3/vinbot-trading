@@ -14,18 +14,9 @@ datasources:
     url: http://loki:3100
     editable: false
 
-  - name: Tempo
-    type: tempo
+  - name: SQLite
+    type: frser-sqlite-datasource
     access: proxy
-    url: http://tempo:3200
     editable: false
     jsonData:
-      httpMethod: GET
-      serviceMap:
-        datasourceUid: 'prometheus'
-      nodeGraph:
-        enabled: true
-      search:
-        hide: false
-      lokiSearch:
-        datasourceUid: 'loki'
+      path: /var/lib/grafana/data/vinbot.db

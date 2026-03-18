@@ -1,20 +1,25 @@
+version: '3.8'
+
 services:
-  bot:
+  bot-scalper:
     build: .
-    container_name: vinbot-trading
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
+    container_name: vinbot-scalper
     env_file:
-      - .env
+      - .env.scalper
     volumes:
       - ./data:/app/data
-      - ./logs:/app/logs
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10mb"
-        max-file: "3"
+      - ./logs_scalper:/app/logs
+    restart: always
+
+  bot-classic:
+    build: .
+    container_name: vinbot-classic
+    env_file:
+      - .env.classic
+    volumes:
+      - ./data:/app/data
+      - ./logs_classic:/app/logs
+    restart: always
 
   prometheus:
     image: prom/prometheus:latest
@@ -25,61 +30,38 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
     ports:
       - "9090:9090"
-    restart: unless-stopped
+    restart: always
 
   loki:
     image: grafana/loki:latest
     container_name: vinbot-loki
-    user: "0"
     volumes:
       - ./monitoring/loki/loki.yml:/etc/loki/local-config.yaml
     ports:
-      - "3101:3100"
-    restart: unless-stopped
+      - "3100:3100"
+    restart: always
 
-  promtail:
-    image: grafana/promtail:latest
-    container_name: vinbot-promtail
-    volumes:
-      - ./logs:/app/logs:ro
-      - ./monitoring/loki/promtail.yml:/etc/promtail/config.yml
-    command: -config.file=/etc/promtail/config.yml
-    restart: unless-stopped
-
-  tempo:
-    image: grafana/tempo:latest
-    container_name: vinbot-tempo
-    user: "0"
-    command: [ "-config.file=/etc/tempo.yaml" ]
-    volumes:
-      - ./monitoring/tempo/tempo.yml:/etc/tempo.yaml
-      - tempo_data:/tmp/tempo
-    ports:
-      - "3200:3200" # tempo
-      - "4317:4317" # otlp grpc
-    restart: unless-stopped
 
   grafana:
     image: grafana/grafana:latest
     container_name: vinbot-grafana
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./data:/var/lib/grafana/data
       - grafana_data:/var/lib/grafana
     environment:
-      - GF_AUTH_ANONYMOUS_ENABLED=true
-      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
-      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=frser-sqlite-datasource
     ports:
       - "3001:3000"
-    restart: unless-stopped
     depends_on:
-      - prometheus
       - loki
-      - tempo
+    restart: always
 
 volumes:
   prometheus_data:
   grafana_data:
-  tempo_data:

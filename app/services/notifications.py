@@ -20,9 +20,12 @@ class NotificationService:
             logger.warning("NOTIFICATIONS | Telegram credentials missing. Skipping message.")
             return
 
+        proj_esc = self.escape_markdown(settings.PROJECT_NAME)
+        full_text = fr"\[{proj_esc}\]\n{text}"
+        
         payload = {
             "chat_id": self.chat_id,
-            "text": text,
+            "text": full_text,
             "parse_mode": "MarkdownV2"
         }
 
@@ -43,7 +46,7 @@ class NotificationService:
         side_esc = self.escape_markdown(side.upper())
         price_esc = self.escape_markdown(f"{price:.2f}")
         qty_esc = self.escape_markdown(f"{qty}")
-        rsi_str = f" | RSI: `{rsi:.2f}`" if rsi is not None else ""
+        rsi_str = self.escape_markdown(f" | RSI: {rsi:.2f}") if rsi is not None else ""
         
         msg = f"{emoji} *{symbol_esc}* {side_esc} executed\nPrice: `{price_esc}`\nQty: `{qty_esc}`{rsi_str}"
         await self.send_message(msg)
@@ -55,15 +58,16 @@ class NotificationService:
         signal_esc = self.escape_markdown(signal.replace("_", " "))
         price_esc = self.escape_markdown(f"{price:.2f}")
         pnl_esc = self.escape_markdown(f"{pnl:.2f}")
+        pipe_esc = self.escape_markdown(" | ")
         
-        msg = f"{emoji} *RISK ALERT* | {symbol_esc}\nSignal: `{signal_esc}`\nPrice: `{price_esc}`\nPNL: `{pnl_esc}%`"
+        msg = f"{emoji} *RISK ALERT*{pipe_esc}{symbol_esc}\nSignal: `{signal_esc}`\nPrice: `{price_esc}`\nPNL: `{pnl_esc}%`"
         await self.send_message(msg)
 
     async def notify_status(self, status: str):
         """Send a status update notification."""
         emoji = "🤖" if "ONLINE" in status.upper() else "🔌"
         status_esc = self.escape_markdown(status)
-        msg = f"{emoji} *VinBot* status: {status_esc}"
+        msg = f"{emoji} status: {status_esc}"
         await self.send_message(msg)
 
     def escape_markdown(self, text: str) -> str:

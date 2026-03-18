@@ -11,17 +11,22 @@ logger = logging.getLogger(__name__)
 
 class BinanceClient:
     def __init__(self):
-        self.base_url = settings.BINANCE_BASE_URL
         self.api_key = settings.BINANCE_API_KEY
         self.secret_key = settings.BINANCE_SECRET_KEY
         self.time_offset = 0
-        self.client = httpx.AsyncClient(base_url=self.base_url, timeout=10.0)
+        self._client: Optional[httpx.AsyncClient] = None
         self.exchange_info: Dict[str, Any] = {}
+
+    @property
+    def client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(base_url=settings.BINANCE_BASE_URL, timeout=10.0)
+        return self._client
 
     async def sync_time(self):
         """Sync local time with Binance server time."""
         try:
-            response = await self.client.get("/v3/time")
+            response = await self.client.get("/api/v3/time")
             response.raise_for_status()
             server_time = response.json()["serverTime"]
             local_time = get_timestamp()
@@ -43,6 +48,17 @@ class BinanceClient:
         """Base request method with signature and error handling."""
         headers = {"X-MBX-APIKEY": self.api_key}
         
+        # Ensure endpoint starts with /api/v3 if not present (to be robust)
+        if not endpoint.startswith("/api"):
+            if not endpoint.startswith("/"):
+                endpoint = f"/api/v3/{endpoint}"
+            else:
+                endpoint = f"/api{endpoint}"
+        elif not endpoint.startswith("/api/v3"):
+            # If it starts with /api but not /api/v3 (edge case)
+            pass 
+        
+
         if signed:
             params["timestamp"] = self._get_adjusted_timestamp()
             query_string = "&".join([f"{k}={v}" for k, v in params.items()])
@@ -75,7 +91,7 @@ class BinanceClient:
         """Fetch and cache LOT_SIZE for a symbol."""
         if symbol not in self.exchange_info:
             logger.info(f"Fetching exchange info for {symbol}...")
-            data = await self.request("GET", "/v3/exchangeInfo", params={"symbol": symbol})
+            data = await self.request("GET", "/api/v3/exchangeInfo", params={"symbol": symbol})
             symbol_data = next((s for s in data["symbols"] if s["symbol"] == symbol), None)
             if symbol_data:
                 lot_size = next((f for f in symbol_data["filters"] if f["filterType"] == "LOT_SIZE"), None)
@@ -85,15 +101,25 @@ class BinanceClient:
 
     @staticmethod
     def round_step(quantity: float, step_size: float) -> str:
-        """Truncate quantity to the nearest valid step size for Binance."""
-        # Calculate precision from step size (e.g. 0.001 -> 3)
-        precision = str(step_size).rstrip('0').split('.')[-1]
-        precision_len = len(precision) if '.' in str(step_size) else 0
+        """Truncate quantity to the nearest valid step size for Binance, correctly handling scientific notation."""
+        from decimal import Decimal, ROUND_DOWN
         
-        # Round down to prevent 'Insufficient Balance'
-        factor = 10 ** precision_len
-        rounded = (int(quantity * factor)) / factor
-        return f"{rounded:.{precision_len}f}"
+        # Convert to Decimal for precision
+        q = Decimal(str(quantity))
+        s = Decimal(str(step_size))
+        
+        # Calculate quantity as a multiple of step_size
+        rounded = (q / s).quantize(Decimal('1'), rounding=ROUND_DOWN) * s
+        
+        # Determine number of decimal places for formatting
+        s_norm = s.normalize()
+        exponent = s_norm.as_tuple().exponent
+        if isinstance(exponent, int) and exponent < 0:
+            precision = abs(exponent)
+        else:
+            precision = 0
+            
+        return f"{rounded:.{precision}f}"
 
     async def close(self):
         await self.client.aclose()

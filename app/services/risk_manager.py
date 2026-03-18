@@ -116,26 +116,28 @@ class RiskManager:
         entry_price = self.entry_prices.get(symbol)
         pos_meta = self.position_data.get(symbol)
         
-        if entry_price is None or pos_meta is None:
+        if entry_price is None or pos_meta is None or entry_price <= 0:
             return None
 
-        pnl_pct = ((current_price - entry_price) / entry_price) * 100.0
+        pnl_pct = float(((current_price - entry_price) / entry_price) * 100.0)
         
         # 1. Check Hard Stop Loss (dynamic price)
-        if current_price <= pos_meta["sl_price"]:
-            logger.warning(f"RISK | STOP LOSS triggered for {symbol} at {current_price} (Price <= {pos_meta['sl_price']:.2f})")
-            return {"signal": "STOP_LOSS", "pnl": pnl_pct, "quantity": pos_meta["current_qty"]}
+        sl_price = float(pos_meta.get("sl_price", 0.0))
+        if current_price <= sl_price:
+            logger.warning(f"RISK | STOP LOSS triggered for {symbol} at {current_price} (Price <= {sl_price:.2f})")
+            return {"signal": "STOP_LOSS", "pnl": pnl_pct, "quantity": float(pos_meta.get("current_qty", 0.0))}
 
         # 2. Check Partial Take Profits
         tp_levels = self._get_tp_targets()
-        hit_count = pos_meta["tp_hits"]
+        hit_count = int(pos_meta.get("tp_hits", 0))
         
         if hit_count < len(tp_levels):
             target_pnl, sell_fraction = tp_levels[hit_count]
             if pnl_pct >= target_pnl:
-                sell_qty = pos_meta["initial_qty"] * sell_fraction
+                sell_qty = float(pos_meta.get("initial_qty", 0.0)) * sell_fraction
                 # Ensure we don't try to sell more than we have (safety)
-                sell_qty = min(sell_qty, pos_meta["current_qty"])
+                current_qty = float(pos_meta.get("current_qty", 0.0))
+                sell_qty = min(sell_qty, current_qty)
                 
                 logger.info(f"RISK | PARTIAL TP {hit_count+1} triggered for {symbol} at {current_price} (+{pnl_pct:.2f}%)")
                 return {
@@ -146,9 +148,9 @@ class RiskManager:
                 }
             
         # 3. Check Final Take Profit (Legacy/Global fallback if defined higher than levels)
-        if pnl_pct >= settings.TAKE_PROFIT_PCT:
+        if pnl_pct >= float(settings.TAKE_PROFIT_PCT):
             logger.info(f"RISK | FINAL TAKE PROFIT reached for {symbol} at {current_price} (PnL: {pnl_pct:.2f}%)")
-            return {"signal": "TAKE_PROFIT", "pnl": pnl_pct, "quantity": pos_meta["current_qty"], "is_final": True}
+            return {"signal": "TAKE_PROFIT", "pnl": pnl_pct, "quantity": float(pos_meta.get("current_qty", 0.0)), "is_final": True}
             
         return None
 
@@ -158,7 +160,8 @@ class RiskManager:
         trading_pnl_daily.set(self.daily_pnl) # Update Prometheus Gauge
         await persistence.set_state("daily_pnl", self.daily_pnl)
         
-        if self.daily_pnl < -settings.MAX_DAILY_LOSS_PCT * 100: # Simulating $100 units for now
+        max_loss_limit = settings.ALLOCATED_CAPITAL * (settings.MAX_DAILY_LOSS_PCT / 100.0)
+        if self.daily_pnl <= -max_loss_limit:
             self.daily_loss_reached = True
             await persistence.set_state("daily_loss_reached", True)
             logger.error(f"RISK | CIRCUIT BREAKER! Daily loss limit reached: {self.daily_pnl:.2f}")

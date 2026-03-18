@@ -3,4 +3,7 @@
 __pycache__/
 *.pyc
 logs/
+logs_scalper/
+logs_classic/
 data/
+.env*

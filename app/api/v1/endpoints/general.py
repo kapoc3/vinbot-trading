@@ -60,3 +60,77 @@ async def get_risk_status() -> Dict[str, Any]:
         "entry_prices": risk_manager.entry_prices,
         "allowed_to_trade": risk_manager.is_trading_allowed()
     }
+
+@router.get("/bot/performance")
+async def get_performance_metrics() -> Dict[str, Any]:
+    """Calculate overall model effectiveness from order history."""
+    async with db.connection.execute("SELECT * FROM orders ORDER BY timestamp ASC") as cursor:
+        rows = await cursor.fetchall()
+        trades = [dict(row) for row in rows]
+    
+    if not trades:
+        return {"message": "No trades recorded yet", "win_rate": 0, "total_pnl": 0}
+
+    # Group orders into completed trades (Buy -> Sell)
+    # This is a simplified version: assuming Spot Buy then Sell for win/loss
+    realized_trades = []
+    symbol_positions = {} # symbol -> last_buy_order
+    
+    total_pnl = 0.0
+    wins = 0
+    losses = 0
+    
+    for order in trades:
+        symbol = order["symbol"]
+        side = order["side"]
+        price = order["price"]
+        qty = order["quantity"]
+        
+        if side == "BUY":
+            symbol_positions[symbol] = order
+        elif side == "SELL" and symbol in symbol_positions:
+            buy_order = symbol_positions.pop(symbol)
+            pnl_val = (price - buy_order["price"]) * qty
+            total_pnl += pnl_val
+            if pnl_val > 0:
+                wins += 1
+            else:
+                losses += 1
+            realized_trades.append({
+                "symbol": symbol,
+                "pnl": pnl_val,
+                "profit_pct": (price - buy_order["price"]) / buy_order["price"] * 100 if buy_order["price"] > 0 else 0
+            })
+
+    win_rate = (wins / (wins + losses) * 100) if (wins + losses) > 0 else 0
+    
+    return {
+        "total_orders": len(trades),
+        "completed_trades": len(realized_trades),
+        "wins": wins,
+        "losses": losses,
+        "win_rate_pct": round(win_rate, 2),
+        "accumulated_pnl": round(total_pnl, 4),
+        "average_pnl_per_trade": round(total_pnl / len(realized_trades), 4) if realized_trades else 0,
+        "last_trades": realized_trades[-5:] # last 5 realized trades
+    }
+
+@router.post("/bot/force-trade")
+async def force_trade(symbol: str, side: str, quantity: float) -> Dict[str, Any]:
+    """Force a manual market order for testing purposes."""
+    try:
+        side_upper = side.upper()
+        order = await trading_engine.place_market_order(symbol, side_upper, quantity)
+        
+        # Consistent State Management
+        if side_upper == "BUY":
+            price = float(order.get("price", 0) or order.get("fills", [{}])[0].get("price", 0))
+            if price <= 0 and "fills" in order and order["fills"]:
+                price = sum(float(f["price"]) * float(f["qty"]) for f in order["fills"]) / sum(float(f["qty"]) for f in order["fills"])
+            await risk_manager.set_entry_price(symbol, price, quantity)
+        elif side_upper == "SELL":
+            await risk_manager.clear_entry_price(symbol)
+            
+        return {"status": "success", "order": order}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}

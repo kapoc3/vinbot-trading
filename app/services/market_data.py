@@ -21,7 +21,7 @@ class MarketDataService:
             "interval": interval,
             "limit": limit
         }
-        return await binance_client.request("GET", "/v3/klines", params=params)
+        return await binance_client.request("GET", "/api/v3/klines", params=params)
 
     async def stream_klines(self, symbol: str, interval: str, callback: Callable):
         """Stream klines in real-time via WebSocket with reconnection logic."""
