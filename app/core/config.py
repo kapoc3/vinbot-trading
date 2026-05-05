@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
+from pathlib import Path
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "VinBot Trading Core"
@@ -12,6 +13,7 @@ class Settings(BaseSettings):
     MAX_DAILY_LOSS_PCT: float = 5.0
     ENABLE_TRAILING_STOP: bool = True
     ATR_TRAILING_MULTIPLIER: float = 3.0
+    TRAILING_STOP_PCT: float = 0.5  # 0.5% from peak (reasonable for crypto)
     
     # Notifications
     TELEGRAM_BOT_TOKEN: str = ""
@@ -22,7 +24,7 @@ class Settings(BaseSettings):
     BINANCE_SECRET_KEY: str = ""
     
     # Bot Config
-    USE_TESTNET: bool = True
+    BINANCE_ENV: str = "prod" # prod | testnet | mock
     TRADING_SYMBOLS: str = "BTCUSDT,ETHUSDT"
     LOG_LEVEL: str = "INFO"
     TRADING_STRATEGY: str = "RsiOnly" # RsiOnly | RsiWithDivergence | Auto | BollingerBands | MacdMaCross | Breakout
@@ -32,9 +34,10 @@ class Settings(BaseSettings):
     
     # Partial Take Profit Config
     # Format: "pnl_pct1:sell_pct1,pnl_pct2:sell_pct2"
-    # Example: "5.0:50,10.0:25" -> At 5% gain sell 50% of the ORIGINAL size, at 10% gain sell 25% more.
-    PARTIAL_TP_LEVELS: str = "5.0:50,10.0:25"
+    # Example: "1.0:30,2.0:30,3.0:40" -> At 1% gain sell 30%, at 2% sell 30%, at 3% sell remaining 40%
+    PARTIAL_TP_LEVELS: str = "1.0:30,2.0:30,3.0:40"
     MOVE_SL_TO_BE_ON_TP1: bool = True
+    MIN_PROFIT_USD: float = 1.0  # Minimum profit in dollars to execute any sell
     
     # BTC Directional Filter
     ENABLE_BTC_DIRECTIONAL_FILTER: bool = True
@@ -55,23 +58,59 @@ class Settings(BaseSettings):
     ENABLE_RELATIVE_STRENGTH_FILTER: bool = True
     RS_LOOKBACK_PERIOD: int = 14
     
+    # Grid Trading Bot
+    ENABLE_GRID_BOT: bool = False
+    GRID_SYMBOL: str = "SOLUSDT"
+    GRID_LOWER_PRICE: float = 100.0
+    GRID_UPPER_PRICE: float = 150.0
+    GRID_GRID_COUNT: int = 10
+    GRID_SPACING_PCT: float = 1.0
+    
     # Persistence
     DATABASE_PATH: str = "data/vinbot.db"
+    DB_HOST: str = "localhost"
+    DB_USER: str = "vinbot"
+    DB_PASSWORD: str = "vinbotpass"
+    DB_PORT: int = 5432
+    DB_NAME: str = "vinbot_db"
 
+    @property
+    def ASYNC_DATABASE_URL(self) -> str:
+        # For Docker, DB_HOST should be 'db'
+        host = "db" if Path("/.dockerenv").exists() or Path("/run/.containerenv").exists() else self.DB_HOST
+        return f"postgresql+asyncpg://{self.DB_USER}:{self.DB_PASSWORD}@{host}:{self.DB_PORT}/{self.DB_NAME}"
+ 
     # Observability
     OTLP_ENDPOINT: str = "http://tempo:4317"
     PROMETHEUS_METRICS_PATH: str = "/metrics"
     
     # Notification Toggles
     ENABLE_PERIODIC_REPORTS: bool = True
-
+    REPORT_INTERVAL_SECONDS: int = 21600 # 6 hours
+ 
+    # Binance URLs
+    PROD_BASE_URL: str = "https://api.binance.com"
+    PROD_WS_URL: str = "wss://stream.binance.com:9443/ws"
+    TESTNET_BASE_URL: str = "https://testnet.binance.vision"
+    TESTNET_WS_URL: str = "wss://stream.testnet.binance.vision/ws"
+ 
     @property
     def BINANCE_BASE_URL(self) -> str:
-        return "https://testnet.binance.vision" if self.USE_TESTNET else "https://api.binance.com"
-
+        return self.TESTNET_BASE_URL if self.BINANCE_ENV == "testnet" else self.PROD_BASE_URL
+ 
     @property
     def BINANCE_WS_URL(self) -> str:
-        return "wss://stream.testnet.binance.vision/ws" if self.USE_TESTNET else "wss://stream.binance.com:9443/ws"
+        return self.TESTNET_WS_URL if self.BINANCE_ENV == "testnet" else self.PROD_WS_URL
+
+    @property
+    def USE_TESTNET(self) -> bool:
+        """Alias for backward compatibility."""
+        return self.BINANCE_ENV == "testnet"
+
+    @property
+    def USE_MOCK_BINANCE(self) -> bool:
+        """Alias for backward compatibility."""
+        return self.BINANCE_ENV == "mock"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

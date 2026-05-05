@@ -10,6 +10,8 @@ services:
       - ./data:/app/data
       - ./logs_scalper:/app/logs
     restart: always
+    depends_on:
+      - db
 
   bot-classic:
     build: .
@@ -19,7 +21,27 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs_classic:/app/logs
+      - ./.env:/app/.env
+    environment:
+      - RSI_OVERSOLD=35.0
+      - RSI_OVERBOUGHT=65.0
+      - ENABLE_BTC_DIRECTIONAL_FILTER=false
+      - ENABLE_RELATIVE_STRENGTH_FILTER=false
     restart: always
+    depends_on:
+      - db
+
+  bot-grid:
+    build: .
+    container_name: vinbot-grid
+    env_file:
+      - .env.grid
+    volumes:
+      - ./data:/app/data
+      - ./logs_grid:/app/logs
+    restart: always
+    depends_on:
+      - db
 
   prometheus:
     image: prom/prometheus:latest
@@ -62,6 +84,20 @@ services:
       - loki
     restart: always
 
+  db:
+      image: postgres:15-alpine
+      container_name: vinbot-db
+      environment:
+        - POSTGRES_USER=vinbot
+        - POSTGRES_PASSWORD=vinbotpass
+        - POSTGRES_DB=vinbot_db
+      volumes:
+        - postgres_data:/var/lib/postgresql/data
+      ports:
+        - "5432:5432"
+      restart: always
+
 volumes:
   prometheus_data:
   grafana_data:
+  postgres_data:
