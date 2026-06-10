@@ -212,3 +212,38 @@ def test_dashboard_get_trades_endpoint(mock_dependencies):
     assert "Formato de fecha inválido" in response.json()["detail"]
     
     app.dependency_overrides.clear()
+
+def test_dashboard_get_historical_endpoint(mock_dependencies):
+    from app.main import app
+    from app.api.v1.endpoints.dashboard import verify_session
+    
+    app.dependency_overrides[verify_session] = lambda: "admin"
+    client = TestClient(app)
+    
+    mock_klines = [
+        [1781067520000, "64500.0", "64600.0", "64400.0", "64550.0", "12.5", 1781067579999, "2434.19", 308, "1756.87", "28.46", "0"]
+    ]
+    
+    with patch("app.services.market_data.market_service.get_historical_klines", new_callable=AsyncMock, return_value=mock_klines) as mock_get_klines:
+        # 1. Test success with default params
+        response = client.get("/api/v1/dashboard/historical")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["time"] == 1781067520000
+        assert data[0]["open"] == 64500.0
+        assert data[0]["close"] == 64550.0
+        mock_get_klines.assert_called_with("BTCUSDT", "1h", 100)
+        
+        # 2. Test success with custom params
+        response = client.get("/api/v1/dashboard/historical?symbol=ethusdt&interval=15m&limit=50")
+        assert response.status_code == 200
+        mock_get_klines.assert_called_with("ETHUSDT", "15m", 50)
+        
+        # 3. Test invalid interval format
+        response = client.get("/api/v1/dashboard/historical?interval=invalid")
+        assert response.status_code == 400
+        assert "Intervalo inválido" in response.json()["detail"]
+        
+    app.dependency_overrides.clear()
+

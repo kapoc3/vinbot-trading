@@ -210,6 +210,50 @@ async def get_trades(date: Optional[str] = None, username: str = Depends(verify_
             detail="Error al recuperar transacciones de la base de datos"
         )
 
+@router.get("/historical")
+async def get_historical_data(
+    symbol: str = "BTCUSDT",
+    interval: str = "1h",
+    limit: int = 100,
+    username: str = Depends(verify_session)
+) -> List[Dict[str, Any]]:
+    """Get historical klines for a symbol and interval, formatted for charts."""
+    symbol_upper = symbol.upper()
+    
+    valid_intervals = {"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w", "1M"}
+    if interval not in valid_intervals:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Intervalo inválido. Intervalos válidos: {sorted(list(valid_intervals))}"
+        )
+    
+    if limit < 1 or limit > 500:
+        limit = 100
+
+    try:
+        from app.services.market_data import market_service
+        klines = await market_service.get_historical_klines(symbol_upper, interval, limit)
+        if not klines:
+            raise ValueError("No data returned from Binance")
+            
+        formatted_data = []
+        for k in klines:
+            formatted_data.append({
+                "time": k[0],
+                "open": float(k[1]),
+                "high": float(k[2]),
+                "low": float(k[3]),
+                "close": float(k[4]),
+                "volume": float(k[5])
+            })
+        return formatted_data
+    except Exception as e:
+        logger.error(f"DASHBOARD | Error fetching historical data for {symbol_upper} ({interval}): {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Error al obtener datos históricos para {symbol_upper} desde Binance. Verifique el símbolo."
+        )
+
 @router.post("/bot/start")
 async def start_bot(username: str = Depends(verify_session)):
     """Start the trading bot execution loop."""

@@ -312,6 +312,183 @@ btnLogout.addEventListener('click', async () => {
     }
 });
 
+// --- Historical Chart State & Logic ---
+let chartInstance = null;
+let currentChartSymbol = 'BTCUSDT';
+let currentChartInterval = '1h';
+let currentChartType = 'area'; // 'area' or 'candlestick'
+
+// DOM elements for Chart
+const chartSymbolSearch = document.getElementById('chart-symbol-search');
+const chartIntervalSelect = document.getElementById('chart-interval-select');
+const btnChartArea = document.getElementById('btn-chart-area');
+const btnChartCandle = document.getElementById('btn-chart-candle');
+const chartLoadingOverlay = document.getElementById('chart-loading-overlay');
+
+// Fetch historical price klines
+async function fetchHistoricalData(symbol, interval) {
+    if (!chartLoadingOverlay) return;
+    chartLoadingOverlay.classList.add('active');
+    try {
+        const response = await fetch(`/api/v1/dashboard/historical?symbol=${symbol}&interval=${interval}&limit=120`);
+        if (response.status === 401) {
+            window.location.href = 'login.html';
+            return;
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        renderHistoricalChart(data, currentChartType);
+    } catch (error) {
+        console.error('Error fetching historical chart data:', error);
+        showToast('Error de Carga', `No se pudo obtener el historial para ${symbol}. Verifique el símbolo.`);
+    } finally {
+        chartLoadingOverlay.classList.remove('active');
+    }
+}
+
+// Render or update ApexCharts widget
+function renderHistoricalChart(data, type) {
+    const chartData = data.map(d => {
+        if (type === 'candlestick') {
+            return {
+                x: new Date(d.time),
+                y: [d.open, d.high, d.low, d.close]
+            };
+        } else {
+            return {
+                x: new Date(d.time),
+                y: d.close
+            };
+        }
+    });
+
+    const options = {
+        series: [{
+            name: type === 'candlestick' ? 'Vela' : 'Precio de Cierre',
+            data: chartData
+        }],
+        chart: {
+            type: type,
+            height: 350,
+            background: 'transparent',
+            toolbar: {
+                show: true,
+                tools: {
+                    download: false,
+                    selection: true,
+                    zoom: true,
+                    zoomin: true,
+                    zoomout: true,
+                    pan: true,
+                    reset: true
+                }
+            },
+            foreColor: '#9ca3af'
+        },
+        theme: {
+            mode: 'dark'
+        },
+        grid: {
+            borderColor: 'rgba(255, 255, 255, 0.05)',
+            xaxis: {
+                lines: { show: false }
+            },
+            yaxis: {
+                lines: { show: true }
+            }
+        },
+        stroke: {
+            curve: 'smooth',
+            width: type === 'candlestick' ? 1 : 3,
+            colors: type === 'candlestick' ? undefined : ['#8b5cf6']
+        },
+        fill: {
+            type: type === 'candlestick' ? 'solid' : 'gradient',
+            gradient: {
+                shadeIntensity: 1,
+                opacityFrom: 0.4,
+                opacityTo: 0.0,
+                stops: [0, 90, 100],
+                colorStops: [
+                    {
+                        offset: 0,
+                        color: '#8b5cf6',
+                        opacity: 0.35
+                    },
+                    {
+                        offset: 100,
+                        color: '#3b82f6',
+                        opacity: 0.0
+                    }
+                ]
+            }
+        },
+        xaxis: {
+            type: 'datetime',
+            axisBorder: { show: false },
+            axisTicks: { show: false },
+            labels: { datetimeUTC: false }
+        },
+        yaxis: {
+            labels: {
+                formatter: function (val) {
+                    return val >= 1000 ? val.toLocaleString(undefined, { maximumFractionDigits: 0 }) : val.toFixed(4);
+                }
+            }
+        },
+        tooltip: {
+            theme: 'dark',
+            x: { format: 'dd MMM yyyy HH:mm' }
+        },
+        colors: ['#8b5cf6', '#3b82f6', '#10b981', '#ef4444']
+    };
+
+    if (chartInstance) {
+        chartInstance.destroy(); // Clear existing instance to prevent merging bugs
+    }
+    chartInstance = new ApexCharts(document.querySelector("#historical-chart"), options);
+    chartInstance.render();
+}
+
+// Chart Event Listeners
+chartSymbolSearch.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        const symbol = chartSymbolSearch.value.trim().toUpperCase();
+        if (symbol) {
+            currentChartSymbol = symbol;
+            fetchHistoricalData(currentChartSymbol, currentChartInterval);
+        }
+    }
+});
+
+chartIntervalSelect.addEventListener('change', (e) => {
+    currentChartInterval = e.target.value;
+    fetchHistoricalData(currentChartSymbol, currentChartInterval);
+});
+
+btnChartArea.addEventListener('click', () => {
+    if (currentChartType !== 'area') {
+        currentChartType = 'area';
+        btnChartArea.classList.add('active');
+        btnChartCandle.classList.remove('active');
+        fetchHistoricalData(currentChartSymbol, currentChartInterval);
+    }
+});
+
+btnChartCandle.addEventListener('click', () => {
+    if (currentChartType !== 'candlestick') {
+        currentChartType = 'candlestick';
+        btnChartCandle.classList.add('active');
+        btnChartArea.classList.remove('active');
+        fetchHistoricalData(currentChartSymbol, currentChartInterval);
+    }
+});
+
 // Initial fetch and start polling interval
 fetchMetrics();
 setInterval(fetchMetrics, 10000);
+
+// Initial historical chart load
+fetchHistoricalData(currentChartSymbol, currentChartInterval);

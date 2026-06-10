@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 </head>
 <body>
     <div class="app-container">
@@ -96,6 +97,37 @@
             <div class="symbols-grid" id="symbols-grid">
                 <!-- Dynamic symbols injected here -->
                 <div class="loading-placeholder">Cargando información de mercado...</div>
+            </div>
+        </section>
+
+        <!-- Historical Chart Module -->
+        <section class="section-container glass">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
+                <h2 style="margin-bottom: 0; border-left: 4px solid var(--accent-purple); padding-left: 0.75rem;">Historial de Precios (Binance API)</h2>
+                <div class="chart-controls" style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <div style="position: relative;">
+                        <input type="text" id="chart-symbol-search" class="chart-input" placeholder="Buscar par (ej: SOLUSDT)" style="width: 180px;">
+                    </div>
+                    <select id="chart-interval-select" class="chart-select">
+                        <option value="1m">1m</option>
+                        <option value="5m">5m</option>
+                        <option value="15m">15m</option>
+                        <option value="1h" selected>1h</option>
+                        <option value="4h">4h</option>
+                        <option value="1d">1d</option>
+                    </select>
+                    <div class="chart-type-selector" style="display: flex; gap: 0.35rem;">
+                        <button class="btn btn-chart-type active" id="btn-chart-area" title="Gráfico de Área" style="padding: 0.4rem 0.65rem; font-size: 0.9rem;">📉</button>
+                        <button class="btn btn-chart-type" id="btn-chart-candle" title="Gráfico de Velas" style="padding: 0.4rem 0.65rem; font-size: 0.9rem;">🕯️</button>
+                    </div>
+                </div>
+            </div>
+            <div id="chart-container" style="min-height: 380px; width: 100%; position: relative;">
+                <div id="historical-chart"></div>
+                <div id="chart-loading-overlay" class="chart-overlay">
+                    <span class="loading-spinner"></span>
+                    <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-secondary);">Cargando gráfico...</span>
+                </div>
             </div>
         </section>
 
