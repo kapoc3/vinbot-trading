@@ -19,7 +19,7 @@ class StatisticsService:
                 ORDER BY timestamp ASC
             """
             result = await db.execute(query, {"symbol": symbol})
-            orders = result.fetchall()
+            orders = await result.fetchall()
             
             if not orders:
                 return {"symbol": symbol, "error": "No orders found"}
@@ -55,7 +55,7 @@ class StatisticsService:
         try:
             query = "SELECT symbol, side, price, quantity, timestamp FROM orders ORDER BY timestamp ASC"
             result = await db.execute(query)
-            orders = result.fetchall()
+            orders = await result.fetchall()
             
             if not orders:
                 return {"error": "No orders found"}
@@ -319,19 +319,19 @@ class StatisticsService:
         try:
             # Best hours
             result = await db.execute("SELECT hour, win_rate, avg_profit FROM hourly_performance ORDER BY win_rate DESC LIMIT 5")
-            best_hours = [{"hour": r[0], "win_rate": r[1], "avg_profit": r[2]} for r in result.fetchall()]
+            best_hours = [{"hour": r[0], "win_rate": r[1], "avg_profit": r[2]} for r in await result.fetchall()]
             
             # Worst hours
             result = await db.execute("SELECT hour, win_rate, avg_profit FROM hourly_performance ORDER BY win_rate ASC LIMIT 5")
-            worst_hours = [{"hour": r[0], "win_rate": r[1], "avg_profit": r[2]} for r in result.fetchall()]
+            worst_hours = [{"hour": r[0], "win_rate": r[1], "avg_profit": r[2]} for r in await result.fetchall()]
             
             # Best symbols
             result = await db.execute("SELECT symbol, win_rate, total_profit, avg_profit FROM symbol_performance ORDER BY total_profit DESC LIMIT 5")
-            best_symbols = [{"symbol": r[0], "win_rate": r[1], "total_profit": r[2], "avg_profit": r[3]} for r in result.fetchall()]
+            best_symbols = [{"symbol": r[0], "win_rate": r[1], "total_profit": r[2], "avg_profit": r[3]} for r in await result.fetchall()]
             
             # Worst symbols
             result = await db.execute("SELECT symbol, win_rate, total_profit, avg_profit FROM symbol_performance WHERE total_trades >= 5 ORDER BY win_rate ASC LIMIT 5")
-            worst_symbols = [{"symbol": r[0], "win_rate": r[1], "total_profit": r[2], "avg_profit": r[3]} for r in result.fetchall()]
+            worst_symbols = [{"symbol": r[0], "win_rate": r[1], "total_profit": r[2], "avg_profit": r[3]} for r in await result.fetchall()]
             
             return {
                 "best_hours": best_hours,

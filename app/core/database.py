@@ -30,6 +30,18 @@ class Database:
             self.connection = None
             logger.info("Database disconnected")
 
+    async def execute(self, query: str, parameters: dict = None):
+        """Execute a query on the database connection."""
+        if self.connection is None:
+            await self.connect()
+        cursor = await self.connection.execute(query, parameters or {})
+        
+        # Auto-commit on write operations
+        query_upper = query.strip().upper()
+        if any(query_upper.startswith(kw) for kw in ["INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "DROP"]):
+            await self.connection.commit()
+        return cursor
+
     async def _init_tables(self):
         """Task 1.3: Initialize tables bot_state and orders."""
         await self.connection.execute("""

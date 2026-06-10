@@ -3,6 +3,7 @@ import logging
 import os
 from typing import Dict, Any
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
 from app.core.config import get_settings
@@ -42,8 +43,22 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
     if not trading_engine.is_running:
         return
 
-    # 1. Real-time SL/TP/Partial check on every pricing tick
-    risk_res = risk_manager.check_sl_tp(symbol, close_price)
+    # 0. Get ATR for trailing TP
+    symbol_data = get_symbol_data(symbol)
+    atr = symbol_data.get_atr()
+
+    # 1. Check and update trailing TP state
+    if risk_manager.should_check_trailing_tp(symbol):
+        trailing_state = risk_manager.trailing_tp_state.get(symbol, {})
+        if not trailing_state.get("is_active", False):
+            # Check if we should activate
+            risk_manager.activate_trailing_tp(symbol, close_price, atr)
+        else:
+            # Update trailing level
+            risk_manager.update_trailing_tp(symbol, close_price, atr)
+
+    # 2. Real-time SL/TP/Partial check on every pricing tick
+    risk_res = risk_manager.check_sl_tp(symbol, close_price, atr)
     if risk_res:
         risk_signal = risk_res["signal"]
         pnl = risk_res["pnl"]
@@ -94,7 +109,15 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
     if is_closed:
         symbol_data = get_symbol_data(symbol)
         symbol_data.add_kline(kline)
-        
+
+        # Update Multi-Timeframe data
+        if settings.MULTI_TF_ENABLED:
+            try:
+                from app.services.multi_timeframe import multi_tf_manager
+                multi_tf_manager.add_kline(symbol, "1m", kline)
+            except Exception as e:
+                logger.debug(f"Multi-TF update error: {e}")
+
         # Strategy management
         strategy_manager.re_evaluate_regime(symbol)
         rsi = symbol_data.get_rsi()
@@ -157,6 +180,11 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
                         entry_p = float(order.get("price", 0) or order.get("fills", [{}])[0].get("price", 0))
                         exec_qty = float(order.get("executedQty", quantity))
                         await risk_manager.set_entry_price(symbol, entry_p, exec_qty)
+
+                        # Save signal strength for exit strategy
+                        if rsi is not None:
+                            await risk_manager.update_signal_strength(symbol, rsi, settings.RSI_OVERSOLD, "buy")
+
                         await rsi_strategy.update_position(symbol, True)
                     else:
                         await rsi_strategy.update_position(symbol, False)
@@ -221,7 +249,14 @@ async def run_trading_bot():
         if benchmark_symbol not in symbols:
             logger.info(f"Initializing {benchmark_symbol} for directional/relative strength filters...")
             symbols.append(benchmark_symbol)
-    
+
+    # Multi-Timeframe Analysis Setup
+    if settings.MULTI_TF_ENABLED:
+        from app.services.multi_timeframe import multi_tf_manager
+        for symbol in symbols:
+            multi_tf_manager.register_symbol(symbol)
+        logger.info(f"Multi-TF analysis enabled for: {symbols}")
+
     # Load initial states for recovery
     await rsi_strategy.load_initial_state(symbols)
     await risk_manager.load_initial_state(symbols)
@@ -272,3 +307,6 @@ app = FastAPI(
 setup_observability(app)
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+# Mount static files for dashboard UI
+app.mount("/dashboard", StaticFiles(directory="app/static/dashboard", html=True), name="dashboard")

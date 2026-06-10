@@ -88,6 +88,14 @@ class StrategyManager:
             # Ensure position status is maintained between strategy swap
             new_strat.positions[symbol] = False # Known from unlock check above
             self.symbol_strategies[symbol] = new_strat
+            
+            # Send strategy switch alert asynchronously to avoid blocking sync loop
+            import asyncio
+            from app.services.notifications import notification_service
+            old_name = old_strat.__class__.__name__ if old_strat else "Ninguna"
+            new_name = new_strat.__class__.__name__
+            msg = f"🔄 *VinBot Cambio de Estrategia ({symbol})*\nRegimen: `{regime.value}`\nAnterior: `{old_name}`\nNueva: `{new_name}`"
+            asyncio.create_task(notification_service.send_message(msg))
 
     async def load_initial_states(self, symbols: List[str]):
         """Load states for both strategies."""
@@ -184,6 +192,52 @@ class DynamicStrategyProxy:
                 # If we don't have enough data history yet, veto for safety
                 logger.warning(f"VETO | {symbol} BUY vetoed: Insufficient history for RS calculation (Benchmark: {benchmark})")
                 return None
+
+        # 6. Multi-Timeframe Confluence Filter
+        if signal is not None and settings.MULTI_TF_ENABLED:
+            try:
+                from app.services.multi_timeframe import multi_tf_manager, ConfluenceLevel
+                confirmation = multi_tf_manager.confirm_signal(symbol, signal)
+
+                if not confirmation.confirmed:
+                    logger.info(f"CONFLOUENCE | {symbol} {signal} blocked: {confirmation.reason}")
+                    return None
+
+                if confirmation.confluence_level == ConfluenceLevel.MEDIA:
+                    logger.info(f"CONFLOUENCE | {symbol} {signal} confirmed with MEDIA (position reduced to 50%)")
+                elif confirmation.confluence_level == ConfluenceLevel.ALTA:
+                    logger.info(f"CONFLOUENCE | {symbol} {signal} confirmed with ALTA")
+            except Exception as e:
+                logger.warning(f"CONFLOUENCE | Error in confluence check: {e}")
+
+        # 7. ML Ensemble Filter
+        if signal is not None and settings.ML_ENABLED:
+            try:
+                from app.services.ml.ensemble import ensemble_predict
+                from app.services.ml.predictor import get_prediction_with_confidence
+                from app.services.ml.feature_engineering import extract_features
+
+                # Get features and ML prediction
+                symbol_data = get_symbol_data(symbol)
+                if symbol_data and symbol_data.closes and len(symbol_data.closes) >= 50:
+                    features = extract_features(symbol_data.closes[-50:] + [symbol_data.closes[-1]])
+                    if features:
+                        ml_result = get_prediction_with_confidence(symbol, features)
+                        if ml_result:
+                            ml_signal, ml_confidence = ml_result
+
+                            # Combine with strategy signal
+                            final_signal, multiplier = ensemble_predict(
+                                symbol, signal, features, ml_signal, ml_confidence
+                            )
+
+                            if final_signal != signal:
+                                logger.info(f"ENSEMBLE | {symbol} signal adjusted: {signal} -> {final_signal} (mult: {multiplier})")
+
+                            signal = final_signal
+
+            except Exception as e:
+                logger.warning(f"ENSEMBLE | Error in ML ensemble: {e}")
 
         return signal
     

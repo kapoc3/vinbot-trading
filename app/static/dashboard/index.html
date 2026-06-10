@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VinBot Trading Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="dashboard-header">
+            <div class="brand">
+                <span class="logo-icon">🤖</span>
+                <div class="brand-text">
+                    <h1>VinBot</h1>
+                    <p>Trading Algorítmico en Tiempo Real</p>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="system-status">
+                    <span class="status-indicator" id="status-indicator"></span>
+                    <span class="status-text" id="status-text">Cargando estado...</span>
+                </div>
+                <div class="controls">
+                    <button class="btn" id="btn-toggle-bot">Cargando...</button>
+                    <button class="btn btn-danger" id="btn-reset-ops">Reiniciar Operaciones</button>
+                    <button class="btn btn-logout" id="btn-logout" title="Cerrar Sesión">🔑</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Dashboard Cards -->
+        <section class="metrics-grid">
+            <div class="card glass">
+                <div class="card-icon">💵</div>
+                <div class="card-content">
+                    <h3>PnL Diario</h3>
+                    <p class="metric-value" id="daily-pnl">$0.00</p>
+                    <span class="metric-subtext" id="daily-pnl-subtext">Hoy (USDT/USDC)</span>
+                </div>
+            </div>
+            
+            <div class="card glass">
+                <div class="card-icon">📈</div>
+                <div class="card-content">
+                    <h3>PnL Acumulado</h3>
+                    <p class="metric-value" id="accumulated-pnl">$0.00</p>
+                    <span class="metric-subtext">Histórico realizado</span>
+                </div>
+            </div>
+
+            <div class="card glass">
+                <div class="card-icon">⚙️</div>
+                <div class="card-content">
+                    <h3>Modo de Estrategia</h3>
+                    <p class="metric-value" id="strategy-mode">Auto</p>
+                    <span class="metric-subtext" id="trade-allowed-status">Cargando permisos...</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Rendimiento Histórico Acumulado -->
+        <section class="section-container glass">
+            <h2>Rendimiento Histórico Acumulado</h2>
+            <div class="stats-row">
+                <div class="stat-box">
+                    <span class="stat-label">Ganancia Total</span>
+                    <span class="stat-value" id="widget-total-profit">$0.00</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Win Rate (Acierto)</span>
+                    <span class="stat-value" id="widget-win-rate">0.0%</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Operaciones Totales</span>
+                    <span class="stat-value" id="widget-total-trades">0</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Ganadas / Perdidas</span>
+                    <span class="stat-value" id="widget-ratio">0 / 0</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Max Drawdown</span>
+                    <span class="stat-value negative" id="widget-drawdown">$0.00</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Symbols State and Regime -->
+        <section class="section-container glass">
+            <h2>Estado de Pares y Regímenes de Mercado</h2>
+            <div class="symbols-grid" id="symbols-grid">
+                <!-- Dynamic symbols injected here -->
+                <div class="loading-placeholder">Cargando información de mercado...</div>
+            </div>
+        </section>
+
+        <!-- Recent Trades & Date Log Filter -->
+        <section class="section-container glass">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
+                <h2 style="margin-bottom: 0; border-left: 4px solid var(--accent-blue); padding-left: 0.75rem;">Historial de Operaciones</h2>
+                <div class="filter-controls" style="display: flex; align-items: center; gap: 0.75rem;">
+                    <label for="filter-date" style="font-size: 0.85rem; color: var(--text-secondary); font-weight: 600;">Filtrar por Día:</label>
+                    <input type="date" id="filter-date" class="date-input">
+                    <button class="btn btn-primary" id="btn-clear-filter" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">Mostrar Todo</button>
+                </div>
+            </div>
+            <div class="table-container">
+                <table class="trades-table">
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>ID Orden</th>
+                            <th>Par</th>
+                            <th>Operación</th>
+                            <th>Precio Ejecución</th>
+                            <th>Cantidad</th>
+                            <th>RSI</th>
+                        </tr>
+                    </thead>
+                    <tbody id="trades-tbody">
+                        <tr>
+                            <td colspan="7" class="loading-placeholder">Esperando operaciones...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <!-- Floating Notification Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

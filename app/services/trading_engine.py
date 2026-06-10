@@ -5,16 +5,20 @@ from app.services.binance_client import binance_client
 from app.services.persistence import persistence
 from app.services.risk_manager import risk_manager
 from app.services.notifications import notification_service
+from app.services.paper_trading import paper_trading_engine, get_paper_engine
 from app.core.metrics import trading_orders_total
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
+
 
 class TradingEngine:
     def __init__(self):
         self.order_history = []
         self.is_running = True
+        self.paper_engine = get_paper_engine()
 
-    async def place_market_order(self, symbol: str, side: str, quantity: float, rsi: Optional[float] = None) -> Dict[str, Any]:
+    async def place_market_order(self, symbol: str, side: str, quantity: float, rsi: Optional[float] = None, current_price: float = 0.0) -> Dict[str, Any]:
         """Place a MARKET order on Binance and persist the result."""
         params = {
             "symbol": symbol,
@@ -22,6 +26,31 @@ class TradingEngine:
             "type": "MARKET",
             "quantity": str(quantity)
         }
+
+        # Check if paper trading for this symbol
+        if self.paper_engine.is_paper_symbol(symbol):
+            logger.info(f"PAPER | Placing {side} MARKET order for {quantity} {symbol}")
+            trade = self.paper_engine.open_position(symbol, side, quantity, current_price)
+
+            if trade:
+                order = {
+                    "symbol": symbol,
+                    "side": side,
+                    "type": "MARKET",
+                    "quantity": str(quantity),
+                    "price": str(current_price),
+                    "executedQty": str(quantity),
+                    "orderId": self.paper_engine.order_counter,
+                    "status": "FILLED",
+                    "paper": True
+                }
+                self.order_history.append(order)
+                await persistence.save_order(order, rsi=rsi)
+                trading_orders_total.labels(symbol=symbol, side=side).inc()
+                return order
+            else:
+                raise Exception("Failed to execute paper order")
+
         try:
             logger.info(f"Placing {side} MARKET order for {quantity} {symbol}")
             order = await binance_client.request("POST", "/v3/order", params=params, signed=True)

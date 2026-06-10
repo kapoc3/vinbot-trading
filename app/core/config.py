@@ -7,6 +7,10 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     SECRET_KEY: str = "secret"
     
+    # Dashboard Authentication
+    DASHBOARD_USERNAME: str = "admin"
+    DASHBOARD_PASSWORD: str = "admin"
+    
     # Risk Management
     STOP_LOSS_PCT: float = 2.0
     TAKE_PROFIT_PCT: float = 5.0
@@ -58,8 +62,68 @@ class Settings(BaseSettings):
     ENABLE_RELATIVE_STRENGTH_FILTER: bool = True
     RS_LOOKBACK_PERIOD: int = 14
     
+    # Advanced Exit Strategies
+    # Trailing Take Profit
+    ENABLE_TRAILING_TP: bool = True
+    TRAILING_TP_ATR_MULTIPLIER: float = 2.0
+    TRAILING_TP_ACTIVATION_PCT: float = 1.5
+
+    # Time-Based Exit
+    ENABLE_TIME_EXIT: bool = True
+    MAX_HOLD_HOURS: int = 4
+    TIME_EXIT_COOLDOWN_MINUTES: int = 15
+
+    # Signal Strength Exit
+    ENABLE_SIGNAL_STRENGTH_EXIT: bool = True
+
+    # Dynamic Partial TP
+    ENABLE_DYNAMIC_PARTIAL_TP: bool = True
+
     # Grid Trading Bot
     ENABLE_GRID_BOT: bool = False
+
+    # Backtesting
+    BACKTEST_CACHE_DIR: str = "data/backtest_cache"
+    BACKTEST_INITIAL_CAPITAL: float = 1000.0
+    BACKTEST_SLIPPAGE_MAJORS: float = 0.001  # 0.1%
+    BACKTEST_SLIPPAGE_ALTS: float = 0.002   # 0.2%
+    BACKTEST_COMMISSION: float = 0.001      # 0.1%
+    BACKTEST_DEFAULT_DAYS: int = 365
+
+    # Multi-Timeframe Analysis
+    MULTI_TF_ENABLED: bool = True
+    ACTIVE_TIMEFRAMES: str = "1m,15m,1h"  # Timeframes a monitorear
+    MAX_CANDLES_PER_TF: int = 500
+    MIN_CONFLUENCE_LEVEL: str = "MEDIA"   # ALTA, MEDIA, BAJA
+    ALLOW_LOW_CONFLUENCE_TRADES: bool = False
+
+    # ML Signals
+    ML_ENABLED: bool = False
+    ML_MODEL_PATH: str = "data/ml_models"
+    ML_CONFIDENCE_THRESHOLD: float = 0.5
+    ML_TRAIN_THRESHOLD_PCT: float = 2.0  # % movement to label as BUY/SELL
+    ML_TRAIN_HORIZON: int = 10  # candles forward to check
+
+    # Paper Trading
+    PAPER_TRADING_ENABLED: bool = False
+    PAPER_INITIAL_BALANCE: float = 10000.0
+    PAPER_SLIPPAGE: float = 0.001  # 0.1% slippage simulation
+    PAPER_COMMISSION: float = 0.001  # 0.1% commission simulation
+
+    # Portfolio Rebalancing
+    PORTFOLIO_REBALANCING_ENABLED: bool = False
+    ALLOCATION_METHOD: str = "equal"  # equal, inverse_volatility, risk_weighted
+    REBALANCE_THRESHOLD_PCT: float = 20.0  # Rebalance when position deviates 20%
+    MAX_POSITION_PCT: float = 30.0  # Max 30% of portfolio per symbol
+    MIN_POSITION_PCT: float = 5.0  # Min 5% of portfolio per symbol
+    CORRELATION_THRESHOLD: float = 0.8  # Exclude if correlation > 0.8
+
+    # Risk Analytics
+    VAR_WINDOW: int = 30  # Days for VaR calculation
+    VAR_CONFIDENCE: float = 0.95  # VaR confidence level
+    MAX_DRAWDOWN_THRESHOLD: float = 0.20  # Alert if drawdown exceeds 20%
+    ANALYTICS_ENABLED: bool = True
+
     GRID_SYMBOL: str = "SOLUSDT"
     GRID_LOWER_PRICE: float = 100.0
     GRID_UPPER_PRICE: float = 150.0
