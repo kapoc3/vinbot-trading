@@ -206,14 +206,20 @@ class RiskManager:
         """Check if new trades are allowed based on daily risk."""
         return not self.daily_loss_reached
 
-    def calculate_position_size(self, symbol: str, entry_price: float, sl_price: float) -> float:
+    def calculate_position_size(
+        self,
+        symbol: str,
+        entry_price: float,
+        sl_price: float,
+        position_multiplier: float = 1.0
+    ) -> float:
         """
-        Calculate the quantity to purchase based on risk-per-trade.
-        Formula: (Allocated Capital * Risk %) / (Entry Price - Stop Loss Price)
+        Calculate the quantity to purchase based on risk-per-trade and conviction multiplier.
+        Formula: ((Allocated Capital * Risk %) / (Entry Price - Stop Loss Price)) * Position Multiplier
         """
         try:
             risk_pct = settings.RISK_PER_TRADE_PCT / 100.0
-            capital_at_risk = settings.ALLOCATED_CAPITAL * risk_pct
+            capital_at_risk = settings.ALLOCATED_CAPITAL * risk_pct * float(position_multiplier)
             
             price_risk_per_unit = abs(entry_price - sl_price)
             

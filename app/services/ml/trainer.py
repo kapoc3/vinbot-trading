@@ -1,9 +1,10 @@
 """
-Model training for ML signals.
+Model training for ML signals with leakage-free walk-forward validation.
 """
 import logging
 import os
 import pickle
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, Tuple, List
 
 import numpy as np
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 # Try importing sklearn, if not available use fallback
 try:
     from sklearn.ensemble import RandomForestClassifier
-    from sklearn.model_selection import cross_val_score
+    from sklearn.model_selection import TimeSeriesSplit
     from sklearn.preprocessing import StandardScaler
     SKLEARN_AVAILABLE = True
 except ImportError:
@@ -22,7 +23,7 @@ except ImportError:
 
 
 class ModelTrainer:
-    """Train and save ML models."""
+    """Train and save ML models using purged walk-forward TimeSeriesSplit."""
 
     def __init__(self, model_path: str = "data/ml_models"):
         self.model_path = model_path
@@ -32,51 +33,86 @@ class ModelTrainer:
         self,
         X: List[Dict[str, float]],
         y: List[str],
-        symbol: str
-    ) -> Optional[Any]:
-        """Train a Random Forest model."""
+        symbol: str,
+        embargo_bars: int = 10,
+        n_splits: int = 5
+    ) -> Optional[Dict[str, Any]]:
+        """Train a Random Forest model without look-ahead bias or data leakage."""
         if not SKLEARN_AVAILABLE:
             logger.warning("sklearn not available, cannot train model")
             return None
 
+        if not X or not y or len(X) != len(y):
+            logger.warning("Invalid training dataset dimensions")
+            return None
+
         try:
-            # Convert to numpy arrays
-            feature_names = list(X[0].keys()) if X else []
-            X_array = np.array([[row[f] for f in feature_names] for row in X])
+            # Convert to numpy arrays preserving deterministic feature ordering
+            feature_names = list(X[0].keys())
+            X_array = np.array([[row.get(f, 0.0) for f in feature_names] for row in X], dtype=float)
 
             # Encode labels
             label_map = {"BUY": 0, "HOLD": 1, "SELL": 2}
-            y_array = np.array([label_map[lbl] for lbl in y])
+            y_array = np.array([label_map.get(lbl, 1) for lbl in y], dtype=int)
 
-            # Filter out HOLD for binary classification (simpler)
-            # For now, use all 3 classes
+            n_samples = len(X_array)
+            cv_scores: List[float] = []
 
-            # Scale features
+            # Purged Walk-Forward Cross-Validation (scaler fit strictly inside each train fold)
+            effective_gap = embargo_bars if n_samples > (n_splits + 1) * (embargo_bars + 5) else 0
+            effective_splits = min(n_splits, max(2, (n_samples // 15) - 1))
+
+            if n_samples >= 30 and effective_splits >= 2:
+                tscv = TimeSeriesSplit(n_splits=effective_splits, gap=effective_gap)
+                for train_idx, val_idx in tscv.split(X_array):
+                    fold_scaler = StandardScaler()
+                    X_train_scaled = fold_scaler.fit_transform(X_array[train_idx])
+                    X_val_scaled = fold_scaler.transform(X_array[val_idx])
+
+                    fold_model = RandomForestClassifier(
+                        n_estimators=100,
+                        max_depth=10,
+                        min_samples_split=20,
+                        class_weight="balanced_subsample",
+                        random_state=42,
+                        n_jobs=-1
+                    )
+                    fold_model.fit(X_train_scaled, y_array[train_idx])
+                    score = float(fold_model.score(X_val_scaled, y_array[val_idx]))
+                    cv_scores.append(score)
+
+            cv_mean = float(np.mean(cv_scores)) if cv_scores else 0.0
+            cv_std = float(np.std(cv_scores)) if cv_scores else 0.0
+            logger.info(
+                f"Purged Walk-Forward CV Accuracy ({symbol}): {cv_mean:.3f} (+/- {cv_std:.3f}) "
+                f"[splits={len(cv_scores)}, embargo={effective_gap}]"
+            )
+
+            # Fit final scaler and model on full historical window for live deployment
             scaler = StandardScaler()
             X_scaled = scaler.fit_transform(X_array)
 
-            # Train model
             model = RandomForestClassifier(
                 n_estimators=100,
                 max_depth=10,
                 min_samples_split=20,
+                class_weight="balanced_subsample",
                 random_state=42,
                 n_jobs=-1
             )
-
-            # Cross validation
-            cv_scores = cross_val_score(model, X_scaled, y_array, cv=5)
-            logger.info(f"CV Accuracy: {cv_scores.mean():.3f} (+/- {cv_scores.std():.3f})")
-
-            # Fit final model
             model.fit(X_scaled, y_array)
 
-            # Save model and scaler
+            # Save model, scaler, and audit metadata
             model_data = {
                 "model": model,
                 "scaler": scaler,
                 "feature_names": feature_names,
-                "label_map": label_map
+                "label_map": label_map,
+                "cv_mean": cv_mean,
+                "cv_std": cv_std,
+                "embargo_bars": effective_gap,
+                "n_samples": n_samples,
+                "trained_at": datetime.now(timezone.utc).isoformat()
             }
 
             model_file = os.path.join(self.model_path, f"{symbol}_model.pkl")

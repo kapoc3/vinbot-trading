@@ -99,10 +99,21 @@ class Settings(BaseSettings):
 
     # ML Signals
     ML_ENABLED: bool = False
+    ML_AUTO_TRAIN_ENABLED: bool = True
+    ML_RETRAIN_INTERVAL_HOURS: int = 12
     ML_MODEL_PATH: str = "data/ml_models"
     ML_CONFIDENCE_THRESHOLD: float = 0.5
     ML_TRAIN_THRESHOLD_PCT: float = 2.0  # % movement to label as BUY/SELL
     ML_TRAIN_HORIZON: int = 10  # candles forward to check
+
+    # Smart Split-Routing & Static IP Proxy Failover (Webshare / Static Proxies)
+    # Comma-separated list of static proxy URLs (e.g. Frankfurt, Madrid, Warsaw)
+    BINANCE_PROXY_URLS: str = ""
+    # When True, only signed/authenticated API requests route via static proxy (saving 99% bandwidth)
+    BINANCE_PROXY_SIGNED_ONLY: bool = True
+    WS_PING_INTERVAL: int = 20
+    WS_PING_TIMEOUT: int = 10
+    WS_READ_TIMEOUT: int = 45
 
     # Paper Trading
     PAPER_TRADING_ENABLED: bool = False

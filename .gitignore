@@ -5,5 +5,8 @@ __pycache__/
 logs/
 logs_scalper/
 logs_classic/
+logs_grid/
 data/
+*.db
 .env*
+!.env.example

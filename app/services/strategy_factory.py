@@ -111,8 +111,17 @@ strategy_manager = StrategyManager()
 class DynamicStrategyProxy:
     def __init__(self):
         self.highest_prices: Dict[str, float] = {}
+        self.position_multipliers: Dict[str, float] = {}
+
+    def get_position_multiplier(self, symbol: str) -> float:
+        """Return the latest conviction multiplier (ML Ensemble + Multi-TF Confluence) for symbol."""
+        return self.position_multipliers.get(symbol, 1.0)
 
     def analyze(self, symbol: str) -> Optional[str]:
+        self.position_multipliers[symbol] = 1.0
+        confluence_mult = 1.0
+        ensemble_mult = 1.0
+
         # 1. Trailing Stop Evaluation
         if settings.ENABLE_TRAILING_STOP:
             strategy = strategy_manager.get_strategy(symbol)
@@ -204,8 +213,10 @@ class DynamicStrategyProxy:
                     return None
 
                 if confirmation.confluence_level == ConfluenceLevel.MEDIA:
+                    confluence_mult = 0.5
                     logger.info(f"CONFLOUENCE | {symbol} {signal} confirmed with MEDIA (position reduced to 50%)")
                 elif confirmation.confluence_level == ConfluenceLevel.ALTA:
+                    confluence_mult = 1.0
                     logger.info(f"CONFLOUENCE | {symbol} {signal} confirmed with ALTA")
             except Exception as e:
                 logger.warning(f"CONFLOUENCE | Error in confluence check: {e}")
@@ -217,10 +228,10 @@ class DynamicStrategyProxy:
                 from app.services.ml.predictor import get_prediction_with_confidence
                 from app.services.ml.feature_engineering import extract_features
 
-                # Get features and ML prediction
+                # Get features using full OHLCV SymbolData (no close duplication or fake volume)
                 symbol_data = get_symbol_data(symbol)
                 if symbol_data and symbol_data.closes and len(symbol_data.closes) >= 50:
-                    features = extract_features(symbol_data.closes[-50:] + [symbol_data.closes[-1]])
+                    features = extract_features(symbol_data)
                     if features:
                         ml_result = get_prediction_with_confidence(symbol, features)
                         if ml_result:
@@ -230,6 +241,7 @@ class DynamicStrategyProxy:
                             final_signal, multiplier = ensemble_predict(
                                 symbol, signal, features, ml_signal, ml_confidence
                             )
+                            ensemble_mult = multiplier
 
                             if final_signal != signal:
                                 logger.info(f"ENSEMBLE | {symbol} signal adjusted: {signal} -> {final_signal} (mult: {multiplier})")
@@ -238,6 +250,15 @@ class DynamicStrategyProxy:
 
             except Exception as e:
                 logger.warning(f"ENSEMBLE | Error in ML ensemble: {e}")
+
+        if signal is not None:
+            combined_mult = round(max(0.3, min(1.5, confluence_mult * ensemble_mult)), 4)
+            self.position_multipliers[symbol] = combined_mult
+            try:
+                from app.core.metrics import trading_position_multiplier
+                trading_position_multiplier.labels(symbol=symbol).set(combined_mult)
+            except Exception:
+                pass
 
         return signal
     

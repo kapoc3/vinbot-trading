@@ -44,3 +44,37 @@ binance_wallet_balance = Gauge(
     "Real-time wallet balance from Binance",
     ["asset"]
 )
+
+# --- ML & Quantitative Metrics ---
+
+# ML Prediction Confidence Gauge
+trading_ml_confidence = Gauge(
+    "vinbot_ml_confidence",
+    "Latest ML prediction confidence score (0.0 to 1.0)",
+    ["symbol"]
+)
+
+# ML Predictions Counter
+trading_ml_predictions_total = Counter(
+    "vinbot_ml_predictions_total",
+    "Total number of ML predictions emitted by class",
+    ["symbol", "signal"]
+)
+
+# Position Multiplier Gauge (Ensemble + Multi-TF Confluence)
+trading_position_multiplier = Gauge(
+    "vinbot_position_multiplier",
+    "Active position sizing multiplier from ML Ensemble and Multi-TF Confluence",
+    ["symbol"]
+)
+
+# Smart Proxy Routing & Failover Metrics
+binance_active_proxy_index = Gauge(
+    "vinbot_binance_active_proxy_index",
+    "Index of the currently active static proxy for signed Binance requests (-1 if direct)"
+)
+
+binance_proxy_failovers_total = Counter(
+    "vinbot_binance_proxy_failovers_total",
+    "Total number of automatic static proxy failover rotations"
+)

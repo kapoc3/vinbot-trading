@@ -34,16 +34,40 @@ class MarketDataService:
         await self._stream_with_reconnect(url, callback)
 
     async def _stream_with_reconnect(self, url: str, callback: Callable):
-        """Generic stream with reconnection logic."""
+        """Generic stream with heartbeat, read-timeout watchdog, and ISP IP-change resilience."""
+        backoff = 2
         while True:
             try:
-                async with websockets.connect(url) as websocket:
+                async with websockets.connect(
+                    url,
+                    ping_interval=settings.WS_PING_INTERVAL,
+                    ping_timeout=settings.WS_PING_TIMEOUT,
+                    close_timeout=5,
+                ) as websocket:
                     logger.info(f"Connected to WebSocket: {url}")
-                    async for message in websocket:
-                        data = json.loads(message)
+                    backoff = 2
+                    while True:
+                        raw_msg = await asyncio.wait_for(
+                            websocket.recv(),
+                            timeout=settings.WS_READ_TIMEOUT,
+                        )
+                        data = json.loads(raw_msg)
                         await callback(data)
+            except asyncio.CancelledError:
+                logger.info(f"WebSocket task cancelled for {url}")
+                raise
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"NETWORK | WebSocket read watchdog triggered on {url} "
+                    f"(>{settings.WS_READ_TIMEOUT}s silence; possible ISP IP change). Reconnecting..."
+                )
+                await binance_client.reset_direct_client()
+                await binance_client.sync_time()
+                await asyncio.sleep(backoff)
             except Exception as e:
-                logger.error(f"WebSocket error on {url}: {e}. Reconnecting in 5s...")
-                await asyncio.sleep(5)
+                logger.error(f"WebSocket error on {url}: {e}. Reconnecting in {backoff}s...")
+                await binance_client.reset_direct_client()
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 30)
 
 market_service = MarketDataService()

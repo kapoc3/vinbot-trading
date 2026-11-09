@@ -135,27 +135,42 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
                 
                 # Determine Quantity
                 if side == "BUY":
+                    pos_mult = rsi_strategy.get_position_multiplier(symbol) if hasattr(rsi_strategy, "get_position_multiplier") else 1.0
                     if settings.ENABLE_DYNAMIC_SIZING:
-                        # Calculate SL price to determine risk distance
-                        sl_price = close_price * (1 - settings.STOP_LOSS_PCT / 100.0)
-                        raw_qty = risk_manager.calculate_position_size(symbol, close_price, sl_price)
+                        # Calculate SL price using ATR volatility when available, otherwise percentage fallback
+                        pct_sl = close_price * (1 - settings.STOP_LOSS_PCT / 100.0)
+                        if atr and atr > 0:
+                            atr_sl = close_price - (atr * settings.ATR_TRAILING_MULTIPLIER)
+                            sl_price = min(pct_sl, atr_sl) if atr_sl > 0 else pct_sl
+                        else:
+                            sl_price = pct_sl
+                        raw_qty = risk_manager.calculate_position_size(
+                            symbol, close_price, sl_price, position_multiplier=pos_mult
+                        )
                         
                         # Format for Binance LOT_SIZE
                         lot_info = await binance_client.get_exchange_info(symbol)
                         step_size = float(lot_info.get("stepSize", 0.000001))
                         quantity = binance_client.round_step(raw_qty, step_size)
                         
-                        logger.info(f"SIZING | Calculated Dynamic Qty for {symbol}: {quantity} (Risk: {settings.RISK_PER_TRADE_PCT}%)")
+                        logger.info(
+                            f"SIZING | Calculated Dynamic Qty for {symbol}: {quantity} "
+                            f"(Risk: {settings.RISK_PER_TRADE_PCT}%, Mult: {pos_mult:.2f}x)"
+                        )
                     else:
-                        # Fixed order value approach (e.g. $10 USD)
-                        raw_qty = settings.FIXED_ORDER_VALUE_USDT / close_price
+                        # Fixed order value approach scaled by conviction multiplier
+                        target_usdt = settings.FIXED_ORDER_VALUE_USDT * pos_mult
+                        raw_qty = target_usdt / close_price
                         
                         # Format for Binance LOT_SIZE
                         lot_info = await binance_client.get_exchange_info(symbol)
                         step_size = float(lot_info.get("stepSize", 0.000001))
                         quantity = binance_client.round_step(raw_qty, step_size)
                         
-                        logger.info(f"SIZING | Fixed Order Value for {symbol} at {close_price}: {quantity} (Target: ${settings.FIXED_ORDER_VALUE_USDT}, Step: {step_size})")
+                        logger.info(
+                            f"SIZING | Fixed Order Value for {symbol} at {close_price}: {quantity} "
+                            f"(Target: ${target_usdt:.2f} [Mult: {pos_mult:.2f}x], Step: {step_size})"
+                        )
                 else:
                     # For SELL, we must only sell what we actually have left in risk_manager
                     pos_meta = risk_manager.position_data.get(symbol)
@@ -234,6 +249,73 @@ async def background_metrics_task():
         except Exception as e:
             logger.error(f"Error updating wallet balance metric: {e}")
 
+async def auto_train_symbol_model(symbol: str):
+    """Fetch 500 historical klines and train/refresh the local ML model for a symbol in a worker thread."""
+    if not (settings.ML_ENABLED and settings.ML_AUTO_TRAIN_ENABLED):
+        return
+    try:
+        from app.services.ml.feature_engineering import extract_features, generate_labels
+        from app.services.ml.trainer import train_model
+        from app.services.ml.predictor import ml_predictor
+
+        raw_klines = await market_service.get_historical_klines(symbol, "15m", limit=500)
+        if not raw_klines or len(raw_klines) < 120:
+            return
+
+        kline_dicts = [
+            {"c": float(k[4]), "h": float(k[2]), "l": float(k[3]), "v": float(k[5])}
+            for k in raw_klines
+        ]
+
+        horizon = settings.ML_TRAIN_HORIZON
+        threshold = settings.ML_TRAIN_THRESHOLD_PCT
+        X_samples = []
+        y_labels = []
+
+        for idx in range(50, len(kline_dicts) - horizon):
+            window = kline_dicts[idx - 50 : idx]
+            feats = extract_features(window)
+            if not feats:
+                continue
+            current_close = kline_dicts[idx - 1]["c"]
+            future_close = kline_dicts[idx - 1 + horizon]["c"]
+            ret_pct = ((future_close - current_close) / current_close) * 100.0 if current_close > 0 else 0.0
+            if ret_pct > threshold:
+                lbl = "BUY"
+            elif ret_pct < -threshold:
+                lbl = "SELL"
+            else:
+                lbl = "HOLD"
+            X_samples.append(feats)
+            y_labels.append(lbl)
+
+        if len(X_samples) >= 50:
+            trained = await asyncio.to_thread(
+                train_model, X_samples, y_labels, symbol, settings.ML_MODEL_PATH
+            )
+            if trained:
+                ml_predictor.models.pop(symbol, None)
+                logger.info(f"ML AUTO-TRAIN | Local model refreshed for {symbol} ({len(X_samples)} samples)")
+    except Exception as e:
+        logger.warning(f"ML AUTO-TRAIN | Could not train local model for {symbol}: {e}")
+
+
+async def background_ml_retrain_task():
+    """Periodically retrain local ML models using walk-forward validation."""
+    interval_sec = max(3600, settings.ML_RETRAIN_INTERVAL_HOURS * 3600)
+    while True:
+        try:
+            await asyncio.sleep(interval_sec)
+            if settings.ML_ENABLED and settings.ML_AUTO_TRAIN_ENABLED:
+                symbols = [s.strip() for s in settings.TRADING_SYMBOLS.split(",") if s.strip()]
+                for symbol in symbols:
+                    await auto_train_symbol_model(symbol)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"Error in background_ml_retrain_task: {e}")
+
+
 async def run_trading_bot():
     """Background task for the trading engine initialization and symbol loop."""
     logger.info("Starting Trading Bot background loop...")
@@ -272,6 +354,7 @@ async def run_trading_bot():
                 "c": k[4], "h": k[2], "l": k[3], "v": k[5]
             })
         logger.info(f"Warm-up complete for {symbol}. RSI: {symbol_data.get_rsi()}")
+        await auto_train_symbol_model(symbol)
 
     tasks = []
     for symbol in symbols:
@@ -288,6 +371,7 @@ async def lifespan(app: FastAPI):
     bot_task = asyncio.create_task(run_trading_bot())
     report_task = asyncio.create_task(background_report_task())
     metrics_task = asyncio.create_task(background_metrics_task())
+    ml_retrain_task = asyncio.create_task(background_ml_retrain_task())
     yield
     # Shutdown
     logger.info("Application shutting down...")
@@ -295,6 +379,7 @@ async def lifespan(app: FastAPI):
     bot_task.cancel()
     report_task.cancel()
     metrics_task.cancel()
+    ml_retrain_task.cancel()
     await binance_client.close()
     await db.disconnect()
 

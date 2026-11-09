@@ -7,6 +7,7 @@ from typing import Optional, Tuple, Dict, Any
 import numpy as np
 
 from app.core.config import get_settings
+from app.core.metrics import trading_ml_confidence, trading_ml_predictions_total
 from app.services.ml.trainer import ModelTrainer
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,9 @@ class MLPredictor:
 
             # Get confidence (probability of predicted class)
             confidence = float(probabilities[prediction])
+
+            trading_ml_confidence.labels(symbol=symbol).set(confidence)
+            trading_ml_predictions_total.labels(symbol=symbol, signal=signal).inc()
 
             logger.debug(f"ML Prediction for {symbol}: {signal} (confidence: {confidence:.2f})")
 
