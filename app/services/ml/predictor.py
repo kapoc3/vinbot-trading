@@ -237,9 +237,9 @@ class MLPredictor:
         sl_pct = min(settings.STOP_LOSS_PCT, 0.55) / 100.0
         horizon = 15
         now_iso = datetime.now(timezone.utc).strftime("%H:%M:%S")
-        pred_id = f"{symbol}_{int(datetime.now(timezone.utc).timestamp())}"
+        pred_id = f"{symbol}_{int(datetime.now(timezone.utc).timestamp())}_{ len(self.pending_verifications[symbol]) }"
 
-        pending.append(
+        self.pending_verifications[symbol].append(
             {
                 "id": pred_id,
                 "predicted_signal": signal,

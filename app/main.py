@@ -440,16 +440,27 @@ async def run_trading_bot():
                 from app.core.metrics import trading_orderbook_imbalance
                 obi_init = await binance_client.get_order_book_imbalance(symbol, limit=20)
                 trading_orderbook_imbalance.labels(symbol=symbol).set(obi_init)
-                init_feats = extract_features(symbol_data)
-                if init_feats:
-                    ml_predictor.record_and_verify_candle(
-                        symbol=symbol,
-                        close_price=symbol_data.closes[-1],
-                        high_price=symbol_data.highs[-1] if symbol_data.highs else symbol_data.closes[-1],
-                        low_price=symbol_data.lows[-1] if symbol_data.lows else symbol_data.closes[-1],
-                        features=init_feats,
-                        obi=obi_init,
-                    )
+                # Replay the last 20 warm-up candles through the auditor so live accuracy is populated immediately
+                closes_list = list(symbol_data.closes)
+                highs_list = list(symbol_data.highs)
+                lows_list = list(symbol_data.lows)
+                vols_list = list(symbol_data.volumes)
+                start_idx = max(50, len(closes_list) - 22)
+                for idx in range(start_idx, len(closes_list) + 1):
+                    window_klines = [
+                        {"c": closes_list[j], "h": highs_list[j], "l": lows_list[j], "v": vols_list[j]}
+                        for j in range(idx - 50, idx)
+                    ]
+                    w_feats = extract_features(window_klines)
+                    if w_feats:
+                        ml_predictor.record_and_verify_candle(
+                            symbol=symbol,
+                            close_price=closes_list[idx - 1],
+                            high_price=highs_list[idx - 1],
+                            low_price=lows_list[idx - 1],
+                            features=w_feats,
+                            obi=obi_init,
+                        )
             except Exception as e:
                 logger.debug(f"Initial ML telemetry error for {symbol}: {e}")
 
