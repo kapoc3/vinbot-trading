@@ -503,13 +503,13 @@
       "title": "Binance Real Wallet Balance",
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "Prometheus"
       },
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "Prometheus"
           },
           "expr": "max(vinbot_wallet_balance)",
           "refId": "A"
@@ -547,6 +547,275 @@
           },
           "unit": "currencyUSD",
           "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 28
+      },
+      "type": "bargauge",
+      "title": "🧠 IA Local: Precisión Walk-Forward (CV) y Acierto en Vivo",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "vinbot_ml_cv_accuracy{job=~\"$job\", symbol=~\"$symbol\"}",
+          "legendFormat": "CV {{symbol}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "vinbot_ml_live_accuracy{job=~\"$job\", symbol=~\"$symbol\"}",
+          "legendFormat": "En Vivo {{symbol}}",
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.45 },
+              { "color": "green", "value": 0.55 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 28
+      },
+      "type": "stat",
+      "title": "🛡️ Aciertos IA Verificados vs Trampas Vetadas",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "sum(vinbot_ml_live_evaluated_total{outcome=\"correct\"}) or vector(0)",
+          "legendFormat": "Predicciones Acertadas",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "sum(vinbot_ml_vetoes_total) or vector(0)",
+          "legendFormat": "Trampas Vetadas (IA/OBI)",
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 28
+      },
+      "type": "bargauge",
+      "title": "⚖️ Order Book Imbalance (Top-20 Liquidez Binance)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "vinbot_orderbook_imbalance{job=~\"$job\", symbol=~\"$symbol\"}",
+          "legendFormat": "OBI {{symbol}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "displayMode": "lcd",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "min": -1,
+          "max": 1,
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": -0.2 },
+              { "color": "green", "value": 0.15 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 11,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 34
+      },
+      "type": "timeseries",
+      "title": "🎯 Probabilidades Triple-Barrier en Vivo: P(Take Profit) vs P(Stop Loss)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "vinbot_ml_buy_prob{job=~\"$job\", symbol=~\"$symbol\"}",
+          "legendFormat": "P(Take Profit) {{symbol}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "vinbot_ml_sell_prob{job=~\"$job\", symbol=~\"$symbol\"}",
+          "legendFormat": "P(Stop Loss) {{symbol}}",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 15
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 12,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 34
+      },
+      "type": "timeseries",
+      "title": "📈 Confianza IA & Multiplicador de Posición (Ensemble)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "vinbot_ml_confidence{job=~\"$job\", symbol=~\"$symbol\"}",
+          "legendFormat": "Confianza IA {{symbol}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "vinbot_position_multiplier{job=~\"$job\", symbol=~\"$symbol\"}",
+          "legendFormat": "Multiplicador Tamaño {{symbol}}",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 12
+          }
         },
         "overrides": []
       }
@@ -612,6 +881,6 @@
   "timezone": "",
   "title": "VinBot Dashboard",
   "uid": "vinbot_main",
-  "version": 3,
+  "version": 4,
   "weekStart": ""
 }

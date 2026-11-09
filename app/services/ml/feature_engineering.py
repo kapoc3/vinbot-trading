@@ -118,6 +118,14 @@ class FeatureEngine:
             features['high_low_ratio'] = float((highs[-1] - lows[-1]) / current_close * 100.0)
             features['close_open_ratio'] = float((current_close - window_start_close) / window_start_close * 100.0) if window_start_close > 0 else 0.0
 
+            # Microstructure & Momentum Acceleration (scale-invariant)
+            features['rsi_slope'] = float(features['rsi_7'] - features['rsi_21'])
+            candle_range = float(highs[-1] - lows[-1])
+            features['buying_pressure_wick'] = float((current_close - lows[-1]) / candle_range * 100.0) if candle_range > 0 else 50.0
+            vol_std = float(np.std(volumes[-20:])) if len(volumes) >= 20 else 0.0
+            raw_vol_z = ( float(volumes[-1]) - avg_volume ) / vol_std if vol_std > 1e-9 else 0.0
+            features['volume_zscore'] = float(np.clip(raw_vol_z, -5.0, 5.0))
+
             return features
 
         except Exception as e:
@@ -217,3 +225,51 @@ def generate_labels(klines: List[Any], threshold: float = 2.0, horizon: int = 10
         return "SELL"
     else:
         return "HOLD"
+
+
+def generate_triple_barrier_label(
+    future_klines: List[Dict[str, float]],
+    entry_price: float,
+    tp_pct: float = 1.5,
+    sl_pct: float = 1.0,
+    fee_pct: float = 0.2,
+) -> str:
+    """
+    Triple-Barrier Labeling (Lopez de Prado):
+    Evaluates the forward path of candles to determine whether the Upper Barrier (Take Profit)
+    or Lower Barrier (Stop Loss) is touched first, accounting for round-trip fees.
+    Returns:
+      - "BUY": Upper barrier (TP) hit first, or strong positive net return at vertical barrier.
+      - "SELL": Lower barrier (SL) hit first (trap / losing trade to veto).
+      - "HOLD": Neither barrier hit and net return within noise band.
+    """
+    if not future_klines or entry_price <= 0:
+        return "HOLD"
+
+    upper_barrier = entry_price * (1.0 + (tp_pct + fee_pct) / 100.0)
+    lower_barrier = entry_price * (1.0 - sl_pct / 100.0)
+
+    for k in future_klines:
+        high_p = float(k.get("h", k.get("c", entry_price)))
+        low_p = float(k.get("l", k.get("c", entry_price)))
+
+        hit_sl = low_p <= lower_barrier
+        hit_tp = high_p >= upper_barrier
+
+        if hit_sl and hit_tp:
+            # Conservative assumption when both touched in same bar
+            return "SELL"
+        if hit_sl:
+            return "SELL"
+        if hit_tp:
+            return "BUY"
+
+    # Vertical barrier (time expiration): check final net return after fees
+    final_close = float(future_klines[-1].get("c", entry_price))
+    net_ret_pct = ((final_close - entry_price) / entry_price) * 100.0 - fee_pct
+
+    if net_ret_pct >= (tp_pct * 0.55):
+        return "BUY"
+    if net_ret_pct <= -(sl_pct * 0.55):
+        return "SELL"
+    return "HOLD"

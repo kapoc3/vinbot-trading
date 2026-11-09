@@ -159,9 +159,14 @@ class Settings(BaseSettings):
     OTLP_ENDPOINT: str = "http://tempo:4317"
     PROMETHEUS_METRICS_PATH: str = "/metrics"
     
-    # Notification Toggles
+    # Notification Toggles & Actionable Alerting
     ENABLE_PERIODIC_REPORTS: bool = True
     REPORT_INTERVAL_SECONDS: int = 21600 # 6 hours
+    NOTIFY_STRATEGY_CHANGES: bool = False
+    NOTIFY_STARTUP_SHUTDOWN: bool = False
+    ALERT_COOLDOWN_SECONDS: int = 900 # 15 min anti-spam cooldown for repeated critical errors
+    CAPITAL_TARGET_USDC: float = 100.0
+    CAPITAL_MILESTONES: str = "82.0,91.0,100.0"
  
     # Binance URLs
     PROD_BASE_URL: str = "https://api.binance.com"

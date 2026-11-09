@@ -89,13 +89,16 @@ class StrategyManager:
             new_strat.positions[symbol] = False # Known from unlock check above
             self.symbol_strategies[symbol] = new_strat
             
-            # Send strategy switch alert asynchronously to avoid blocking sync loop
-            import asyncio
-            from app.services.notifications import notification_service
-            old_name = old_strat.__class__.__name__ if old_strat else "Ninguna"
-            new_name = new_strat.__class__.__name__
-            msg = f"🔄 *VinBot Cambio de Estrategia ({symbol})*\nRegimen: `{regime.value}`\nAnterior: `{old_name}`\nNueva: `{new_name}`"
-            asyncio.create_task(notification_service.send_message(msg))
+            # Send strategy switch alert only if explicitly enabled (avoids 1m regime noise)
+            if settings.NOTIFY_STRATEGY_CHANGES:
+                import asyncio
+                from app.services.notifications import notification_service
+                old_name = notification_service.escape_markdown(old_strat.__class__.__name__ if old_strat else "Ninguna")
+                new_name = notification_service.escape_markdown(new_strat.__class__.__name__)
+                sym_esc = notification_service.escape_markdown(symbol)
+                reg_esc = notification_service.escape_markdown(regime.value)
+                msg = f"🔄 *VinBot Cambio de Estrategia \\({sym_esc}\\)*\nRegimen: `{reg_esc}`\nAnterior: `{old_name}`\nNueva: `{new_name}`"
+                asyncio.create_task(notification_service.send_message(msg))
 
     async def load_initial_states(self, symbols: List[str]):
         """Load states for both strategies."""

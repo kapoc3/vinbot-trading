@@ -61,6 +61,7 @@ class RiskManager:
 
     async def reset_daily_stats(self):
         """Reset daily PnL and circuit breaker at 00:00 UTC."""
+        prev_pnl = self.daily_pnl
         self.daily_pnl = 0.0
         trading_pnl_daily.set(0) # Reset Prometheus Gauge
         self.daily_loss_reached = False
@@ -68,7 +69,14 @@ class RiskManager:
         await persistence.set_state("daily_loss_reached", False)
         await persistence.set_state("last_reset_date", self.last_reset_date)
         logger.info("RISK | Daily stats reset for new day.")
-        await notification_service.notify_status("Daily stats reset for new day")
+        if abs(prev_pnl) > 0.0001:
+            quote = "USDC" if any("USDC" in s for s in settings.TRADING_SYMBOLS.split(",")) else "USDT"
+            sign = "+" if prev_pnl >= 0 else ""
+            await notification_service.notify_status(
+                f"Cierre diario completado | PnL Día Anterior: {sign}{prev_pnl:.2f} {quote}",
+                silent=True,
+                dedup_key=f"daily_reset:{self.last_reset_date}",
+            )
 
     async def set_entry_price(self, symbol: str, price: float, quantity: float = 0.0):
         """Update and persist the entry price and initial quantity for a symbol."""

@@ -235,6 +235,33 @@ class BinanceClient:
         asset_bal = next((b for b in balances if b["asset"] == asset.upper()), {"free": "0.0", "locked": "0.0"})
         return asset_bal
 
+    async def get_order_book_imbalance(self, symbol: str, limit: int = 20) -> float:
+        """
+        Compute Top-N Order Book Imbalance (OBI) in [-1.0, 1.0]:
+        (bid_notional - ask_notional) / (bid_notional + ask_notional).
+        Positive = buying support; Negative = heavy ask wall.
+        """
+        try:
+            if settings.BINANCE_ENV == "mock":
+                return 0.0
+            depth = await self.request(
+                "GET",
+                "/api/v3/depth",
+                params={"symbol": symbol.upper(), "limit": limit},
+                signed=False,
+            )
+            bids = depth.get("bids", [])
+            asks = depth.get("asks", [])
+            bid_vol = sum(float(p) * float(q) for p, q in bids)
+            ask_vol = sum(float(p) * float(q) for p, q in asks)
+            total = bid_vol + ask_vol
+            if total <= 0:
+                return 0.0
+            return (bid_vol - ask_vol) / total
+        except Exception as e:
+            logger.debug(f"Could not fetch order book imbalance for {symbol}: {e}")
+            return 0.0
+
     @staticmethod
     def round_step(quantity: float, step_size: float) -> str:
         """Truncate quantity to the nearest valid step size for Binance, correctly handling scientific notation."""

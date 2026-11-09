@@ -165,6 +165,140 @@ function updateUI(data) {
             symbolsGrid.appendChild(card);
         });
     }
+
+    // 5. Render Local AI & Microstructure Analytics
+    renderMLInsights(data.ml_insights || {});
+}
+
+function renderMLInsights(ml) {
+    const modelsCountEl = document.getElementById('ai-models-count');
+    const cvAccEl = document.getElementById('ai-cv-accuracy');
+    const liveAccEl = document.getElementById('ai-live-accuracy');
+    const liveEvalSubEl = document.getElementById('ai-live-evaluated-sub');
+    const vetoesCountEl = document.getElementById('ai-vetoes-count');
+    const vetoesSavedSubEl = document.getElementById('ai-vetoes-saved-sub');
+    const aiSymbolsGrid = document.getElementById('ai-symbols-grid');
+    const aiDecisionsTbody = document.getElementById('ai-decisions-tbody');
+    const aiBadge = document.getElementById('ai-engine-badge');
+
+    if (!modelsCountEl || !aiSymbolsGrid) return;
+
+    if (aiBadge) {
+        aiBadge.textContent = ml.enabled ? 'ENSEMBLE ACTIVO' : 'MODO PASIVO';
+        aiBadge.className = `regime-tag ${ml.enabled ? 'trending' : 'ranging'}`;
+    }
+
+    modelsCountEl.textContent = `${ml.models_active || 0} Pares`;
+    cvAccEl.textContent = `${(ml.avg_cv_accuracy || 0).toFixed(1)}%`;
+
+    if (ml.live_accuracy_pct !== null && ml.live_accuracy_pct !== undefined) {
+        liveAccEl.textContent = `${ml.live_accuracy_pct.toFixed(1)}%`;
+        liveAccEl.className = `stat-value ${ml.live_accuracy_pct >= 50 ? 'positive' : 'negative'}`;
+        liveEvalSubEl.textContent = `${ml.live_correct_total || 0} aciertos de ${ml.live_evaluated_total || 0} verificadas`;
+    } else {
+        liveAccEl.textContent = 'En observación';
+        liveAccEl.className = 'stat-value';
+        liveEvalSubEl.textContent = 'Verificando barreras en próximas velas 1m...';
+    }
+
+    vetoesCountEl.textContent = ml.vetoes_total || 0;
+    vetoesSavedSubEl.textContent = `${ml.vetoes_saved || 0} caídas evitadas con éxito`;
+
+    // Render per-symbol AI cards
+    const symMap = ml.symbols || {};
+    const symKeys = Object.keys(symMap);
+    aiSymbolsGrid.innerHTML = '';
+
+    if (symKeys.length === 0) {
+        aiSymbolsGrid.innerHTML = '<div class="loading-placeholder">Entrenando modelos locales...</div>';
+    } else {
+        symKeys.forEach(sym => {
+            const s = symMap[sym];
+            const sig = (s.latest_signal || 'HOLD').toUpperCase();
+            const sigBadgeClass = sig === 'BUY' ? 'buy' : (sig === 'SELL' ? 'sell' : 'unknown');
+            const buyProb = s.buy_prob || 0;
+            const sellProb = s.sell_prob || 0;
+            const obi = s.obi || 0;
+            const obiColor = obi > 0.15 ? 'var(--accent-green)' : (obi < -0.15 ? 'var(--accent-red)' : 'var(--text-secondary)');
+            const obiLabel = obi > 0.25 ? 'Fuerte Compra' : (obi < -0.35 ? 'Muro de Venta (Veto)' : 'Equilibrado');
+            const liveText = s.live_evaluated > 0
+                ? `${s.live_accuracy.toFixed(1)}% (${s.live_correct}/${s.live_evaluated})`
+                : `CV: ${s.cv_accuracy.toFixed(1)}%`;
+
+            const card = document.createElement('div');
+            card.className = 'symbol-card';
+            card.innerHTML = `
+                <div class="symbol-header">
+                    <span class="symbol-name">${sym}</span>
+                    <span class="side-badge ${sigBadgeClass}">${sig} (${(s.latest_confidence || 0).toFixed(0)}%)</span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.45rem; font-size: 0.8rem;">
+                    <div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.2rem;">
+                            <span style="color: var(--accent-green); font-weight: 600;">P(Take Profit): ${buyProb.toFixed(1)}%</span>
+                            <span style="color: var(--accent-red); font-weight: 600;">P(Stop Loss): ${sellProb.toFixed(1)}%</span>
+                        </div>
+                        <div style="display: flex; height: 7px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,0.08);">
+                            <div style="width: ${Math.min(100, buyProb)}%; background: var(--accent-green);"></div>
+                            <div style="width: ${Math.max(0, 100 - buyProb - sellProb)}%; background: rgba(156,163,175,0.35);"></div>
+                            <div style="width: ${Math.min(100, sellProb)}%; background: var(--accent-red);"></div>
+                        </div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; padding-top: 0.25rem; border-top: 1px solid rgba(255,255,255,0.04);">
+                        <span class="strategy-label">Order Book (OBI):</span>
+                        <span style="font-weight: 600; color: ${obiColor};">${obi >= 0 ? '+' : ''}${obi.toFixed(2)} (${obiLabel})</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span class="strategy-label">Precisión Acierto:</span>
+                        <span style="font-weight: 600; color: #e5e7eb;">${liveText}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span class="strategy-label">Muestras / Mecha Compra:</span>
+                        <span style="color: var(--text-secondary);">${s.n_samples || 0} velas | ${Math.min(100, Math.max(0, (s.buying_pressure_wick > 100 ? s.buying_pressure_wick / 100 : (s.buying_pressure_wick || 50)))).toFixed(0)}%</span>
+                    </div>
+                </div>
+            `;
+            aiSymbolsGrid.appendChild(card);
+        });
+    }
+
+    // Render recent AI decisions audit table
+    if (aiDecisionsTbody) {
+        const decisions = ml.recent_decisions || [];
+        aiDecisionsTbody.innerHTML = '';
+        if (decisions.length === 0) {
+            aiDecisionsTbody.innerHTML = '<tr><td colspan="7" class="loading-placeholder">Esperando el próximo cierre de vela de 1m para registrar decisiones...</td></tr>';
+        } else {
+            decisions.forEach(d => {
+                const sig = (d.signal || 'HOLD').toUpperCase();
+                const sigBadgeClass = sig === 'BUY' ? 'buy' : (sig === 'SELL' ? 'sell' : 'unknown');
+                let verdictHtml = '<span style="color: var(--accent-yellow); font-weight: 600;">⏳ Evaluando barreras...</span>';
+                if (d.verified) {
+                    if (d.is_correct) {
+                        verdictHtml = `<span style="color: var(--accent-green); font-weight: 700;">✅ ACERTÓ (${d.actual_outcome})</span>`;
+                    } else {
+                        verdictHtml = `<span style="color: var(--accent-red); font-weight: 700;">❌ FALLÓ (${d.actual_outcome})</span>`;
+                    }
+                }
+                const obiVal = d.obi || 0;
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${d.time || '-'}</td>
+                    <td style="font-weight: 700;">${d.symbol}</td>
+                    <td>$${parseFloat(d.price || 0).toFixed(4)}</td>
+                    <td><span class="side-badge ${sigBadgeClass}">${sig} (${(d.confidence || 0).toFixed(0)}%)</span></td>
+                    <td>
+                        <span style="color: var(--accent-green); font-weight: 600;">TP: ${(d.buy_prob || 0).toFixed(1)}%</span>
+                        <span style="color: var(--text-secondary); margin: 0 0.35rem;">|</span>
+                        <span style="color: var(--accent-red); font-weight: 600;">SL: ${(d.sell_prob || 0).toFixed(1)}%</span>
+                    </td>
+                    <td style="color: ${obiVal >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'}; font-weight: 600;">${obiVal >= 0 ? '+' : ''}${obiVal.toFixed(2)}</td>
+                    <td>${verdictHtml}</td>
+                `;
+                aiDecisionsTbody.appendChild(row);
+            });
+        }
+    }
 }
 
 // Render Trades List inside the Table
@@ -314,7 +448,7 @@ btnLogout.addEventListener('click', async () => {
 
 // --- Historical Chart State & Logic ---
 let chartInstance = null;
-let currentChartSymbol = 'BTCUSDT';
+let currentChartSymbol = 'BTCUSDC';
 let currentChartInterval = '1h';
 let currentChartType = 'area'; // 'area' or 'candlestick'
 

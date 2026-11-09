@@ -100,6 +100,66 @@
             </div>
         </section>
 
+        <!-- Local AI & Microstructure Analytics -->
+        <section class="section-container glass">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
+                <h2 style="margin-bottom: 0; border-left: 4px solid #10b981; padding-left: 0.75rem;">🧠 Inteligencia Artificial Local (Triple-Barrier Ensemble & Order Book)</h2>
+                <span class="regime-tag trending" id="ai-engine-badge">ENSEMBLE ACTIVO</span>
+            </div>
+
+            <!-- AI Accuracy KPI Row -->
+            <div class="stats-row" style="margin-bottom: 1.5rem;">
+                <div class="stat-box">
+                    <span class="stat-label">Modelos Entrenados (1m)</span>
+                    <span class="stat-value" id="ai-models-count">0</span>
+                    <span class="metric-subtext">GradientBoosting + RF + ExtraTrees</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Precisión Walk-Forward (CV)</span>
+                    <span class="stat-value positive" id="ai-cv-accuracy">0.0%</span>
+                    <span class="metric-subtext">Validación sin fuga de datos</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Acierto en Vivo (Auditoría Real)</span>
+                    <span class="stat-value" id="ai-live-accuracy">Evaluando...</span>
+                    <span class="metric-subtext" id="ai-live-evaluated-sub">0 predicciones verificadas</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Compras Peligrosas Vetadas</span>
+                    <span class="stat-value positive" id="ai-vetoes-count">0</span>
+                    <span class="metric-subtext" id="ai-vetoes-saved-sub">Stop-Loss evitados por IA/OBI</span>
+                </div>
+            </div>
+
+            <!-- Per-Symbol AI Cards -->
+            <div class="symbols-grid" id="ai-symbols-grid" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin-bottom: 1.5rem;">
+                <div class="loading-placeholder">Cargando telemetría de modelos locales...</div>
+            </div>
+
+            <!-- Live AI Decision Audit Table -->
+            <h3 style="font-size: 1rem; color: var(--text-secondary); margin-bottom: 0.75rem; font-weight: 600;">📋 Auditoría en Vivo de Decisiones de la IA (Verificación contra el Mercado)</h3>
+            <div class="table-container">
+                <table class="trades-table">
+                    <thead>
+                        <tr>
+                            <th>Hora (UTC)</th>
+                            <th>Par</th>
+                            <th>Precio</th>
+                            <th>Señal IA (Conf.)</th>
+                            <th>P(Take Profit) vs P(Stop Loss)</th>
+                            <th>Order Book (OBI)</th>
+                            <th>Veredicto Real (15m)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ai-decisions-tbody">
+                        <tr>
+                            <td colspan="7" class="loading-placeholder">Recopilando predicciones en vivo...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
         <!-- Historical Chart Module -->
         <section class="section-container glass">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">

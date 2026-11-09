@@ -160,6 +160,87 @@ async def get_dashboard_data(username: str = Depends(verify_session)) -> Dict[st
     except Exception as e:
         logger.error(f"DASHBOARD | Error fetching recent trades from database: {e}")
 
+    # 5. Compile Local AI (Triple-Barrier Ensemble + OBI) telemetry across all active models
+    ml_symbols_data: Dict[str, Any] = {}
+    all_recent_decisions: List[Dict[str, Any]] = []
+    try:
+        import os
+        import json
+        import pickle
+
+        model_dir = settings.ML_MODEL_PATH
+        if os.path.isdir(model_dir):
+            # Discover all symbols that have telemetry or trained models
+            discovered_symbols = set(symbols)
+            for fname in os.listdir(model_dir):
+                if fname.endswith("_telemetry.json"):
+                    discovered_symbols.add(fname.replace("_telemetry.json", ""))
+                elif fname.endswith("_model.pkl"):
+                    discovered_symbols.add(fname.replace("_model.pkl", ""))
+
+            for sym in sorted(discovered_symbols):
+                telemetry_path = os.path.join(model_dir, f"{sym}_telemetry.json")
+                model_path = os.path.join(model_dir, f"{sym}_model.pkl")
+                snap = None
+                if os.path.exists(telemetry_path):
+                    try:
+                        with open(telemetry_path, "r", encoding="utf-8") as f:
+                            snap = json.load(f)
+                    except Exception:
+                        snap = None
+                if snap is None and os.path.exists(model_path):
+                    try:
+                        with open(model_path, "rb") as f:
+                            mdata = pickle.load(f)
+                        snap = {
+                            "symbol": sym,
+                            "model_type": mdata.get("model_type", "VotingEnsemble"),
+                            "trained_at": mdata.get("trained_at", ""),
+                            "n_samples": mdata.get("n_samples", 0),
+                            "cv_accuracy": round(float(mdata.get("cv_mean", 0.0)) * 100.0, 1),
+                            "cv_buy_winrate": round(float(mdata.get("cv_buy_precision", 0.0)) * 100.0, 1),
+                            "live_evaluated": 0,
+                            "live_correct": 0,
+                            "live_accuracy": 0.0,
+                            "vetoes_total": 0,
+                            "vetoes_saved": 0,
+                            "latest_signal": "HOLD",
+                            "latest_confidence": 0.0,
+                            "buy_prob": 0.0,
+                            "hold_prob": 100.0,
+                            "sell_prob": 0.0,
+                            "obi": 0.0,
+                            "recent_decisions": [],
+                        }
+                    except Exception:
+                        pass
+                if snap:
+                    ml_symbols_data[sym] = snap
+                    for dec in snap.get("recent_decisions", []):
+                        all_recent_decisions.append(dec)
+    except Exception as e:
+        logger.error(f"DASHBOARD | Error compiling ML telemetry: {e}")
+
+    all_recent_decisions.sort(key=lambda d: d.get("time", ""), reverse=True)
+    cv_vals = [v.get("cv_accuracy", 0.0) for v in ml_symbols_data.values() if v.get("cv_accuracy", 0.0) > 0]
+    live_eval_total = sum(v.get("live_evaluated", 0) for v in ml_symbols_data.values())
+    live_corr_total = sum(v.get("live_correct", 0) for v in ml_symbols_data.values())
+    vetoes_total = sum(v.get("vetoes_total", 0) for v in ml_symbols_data.values())
+    vetoes_saved = sum(v.get("vetoes_saved", 0) for v in ml_symbols_data.values())
+
+    ml_insights = {
+        "enabled": settings.ML_ENABLED,
+        "models_active": len(ml_symbols_data),
+        "avg_cv_accuracy": round(sum(cv_vals) / len(cv_vals), 1) if cv_vals else 0.0,
+        "live_evaluated_total": live_eval_total,
+        "live_correct_total": live_corr_total,
+        "live_accuracy_pct": round((live_corr_total / live_eval_total) * 100.0, 1) if live_eval_total > 0 else None,
+        "vetoes_total": vetoes_total,
+        "vetoes_saved": vetoes_saved,
+        "symbols": ml_symbols_data,
+        "recent_decisions": all_recent_decisions[:12],
+    }
+
     data = {
         "bot_running": bot_running,
         "daily_pnl": round(daily_pnl, 4),
@@ -170,6 +251,7 @@ async def get_dashboard_data(username: str = Depends(verify_session)) -> Dict[st
         "symbol_regimes": symbol_regimes,
         "symbol_strategies": symbol_strategies,
         "recent_trades": recent_trades,
+        "ml_insights": ml_insights,
         "timestamp": current_time
     }
 
@@ -258,7 +340,7 @@ async def get_historical_data(
 async def start_bot(username: str = Depends(verify_session)):
     """Start the trading bot execution loop."""
     trading_engine.is_running = True
-    await notification_service.send_message("🤖 *VinBot Status Update*\nEl bot ha sido *INICIADO* manualmente desde el Dashboard.")
+    await notification_service.send_message("🤖 *VinBot Status Update*\nEl bot ha sido *INICIADO* manualmente desde el Dashboard\\.")
     logger.info(f"DASHBOARD | Bot started by user '{username}'.")
     return {"status": "success", "message": "Bot iniciado correctamente."}
 
@@ -266,7 +348,7 @@ async def start_bot(username: str = Depends(verify_session)):
 async def stop_bot(username: str = Depends(verify_session)):
     """Stop the trading bot execution loop."""
     trading_engine.is_running = False
-    await notification_service.send_message("🤖 *VinBot Status Update*\nEl bot ha sido *DETENIDO* manualmente desde el Dashboard.")
+    await notification_service.send_message("🤖 *VinBot Status Update*\nEl bot ha sido *DETENIDO* manualmente desde el Dashboard\\.")
     logger.info(f"DASHBOARD | Bot stopped by user '{username}'.")
     return {"status": "success", "message": "Bot detenido correctamente."}
 
@@ -282,6 +364,6 @@ async def reset_operations(username: str = Depends(verify_session)):
         await risk_manager.clear_entry_price(symbol)
         await current_strategy.update_position(symbol, False)
         
-    await notification_service.send_message("📊 *VinBot Operations Reset*\nLas operaciones, posiciones activas y PnL han sido *REINICIADOS* manualmente desde el Dashboard.")
+    await notification_service.send_message("📊 *VinBot Operations Reset*\nLas operaciones, posiciones activas y PnL han sido *REINICIADOS* manualmente desde el Dashboard\\.")
     logger.info(f"DASHBOARD | Operations reset by user '{username}'.")
     return {"status": "success", "message": "Operaciones y PnL reiniciados con éxito."}

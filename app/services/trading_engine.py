@@ -18,7 +18,7 @@ class TradingEngine:
         self.is_running = True
         self.paper_engine = get_paper_engine()
 
-    async def place_market_order(self, symbol: str, side: str, quantity: float, rsi: Optional[float] = None, current_price: float = 0.0) -> Dict[str, Any]:
+    async def place_market_order(self, symbol: str, side: str, quantity: float, rsi: Optional[float] = None, current_price: float = 0.0, notify: bool = True) -> Dict[str, Any]:
         """Place a MARKET order on Binance and persist the result."""
         params = {
             "symbol": symbol,
@@ -59,16 +59,14 @@ class TradingEngine:
             # Task 3.3: Save to persistent database
             await persistence.save_order(order, rsi=rsi)
             
-            # Task 2.1: Notify via Telegram
-            exec_price = float(order.get("price", 0) or order.get("fills", [{}])[0].get("price", 0))
-            exec_qty = float(order.get("executedQty", quantity))
-            
-            # Fetch base and quote balance for more context
-            quote_asset = "USDC" if "USDC" in symbol else "USDT" # Simple heuristic for your setup
-            bal_info = await binance_client.get_asset_balance(quote_asset)
-            current_bal = float(bal_info.get("free", 0.0))
-            
-            await notification_service.notify_order(symbol, side, exec_price, exec_qty, rsi=rsi, balance=current_bal, quote_asset=quote_asset)
+            # Task 2.1: Notify via Telegram (when notify=True)
+            if notify:
+                exec_price = float(order.get("price", 0) or order.get("fills", [{}])[0].get("price", 0))
+                exec_qty = float(order.get("executedQty", quantity))
+                quote_asset = "USDC" if "USDC" in symbol else "USDT"
+                bal_info = await binance_client.get_asset_balance(quote_asset)
+                current_bal = float(bal_info.get("free", 0.0))
+                await notification_service.notify_order(symbol, side, exec_price, exec_qty, rsi=rsi, balance=current_bal, quote_asset=quote_asset)
             
             # Prometheus Counter
             trading_orders_total.labels(symbol=symbol, side=side).inc()

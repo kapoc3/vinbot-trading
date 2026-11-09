@@ -81,6 +81,34 @@ class TestFeatureEngineering:
         features = extract_features(sd)
         assert features is not None
         assert features["volume_ratio"] > 2.5
+        assert "rsi_slope" in features
+        assert "buying_pressure_wick" in features
+        assert "volume_zscore" in features
+
+    def test_triple_barrier_labeling(self):
+        """Verify Triple-Barrier labeling returns BUY when TP hits first and SELL when SL hits first."""
+        from app.services.ml.feature_engineering import generate_triple_barrier_label
+
+        # Scenario 1: Price hits TP (+1.0%) before SL (-0.6%)
+        klines_tp = [
+            {"c": 100.2, "h": 100.4, "l": 99.8, "v": 10},
+            {"c": 101.1, "h": 101.2, "l": 100.1, "v": 15},
+        ]
+        assert generate_triple_barrier_label(klines_tp, entry_price=100.0, tp_pct=0.8, sl_pct=0.6, fee_pct=0.1) == "BUY"
+
+        # Scenario 2: Price hits SL (-0.6%) before TP
+        klines_sl = [
+            {"c": 99.3, "h": 100.1, "l": 99.2, "v": 20},
+            {"c": 101.5, "h": 101.6, "l": 99.3, "v": 25},
+        ]
+        assert generate_triple_barrier_label(klines_sl, entry_price=100.0, tp_pct=0.8, sl_pct=0.6, fee_pct=0.1) == "SELL"
+
+        # Scenario 3: Price stays sideways inside barriers -> HOLD
+        klines_hold = [
+            {"c": 100.1, "h": 100.3, "l": 99.7, "v": 10},
+            {"c": 100.0, "h": 100.2, "l": 99.8, "v": 10},
+        ]
+        assert generate_triple_barrier_label(klines_hold, entry_price=100.0, tp_pct=0.8, sl_pct=0.6, fee_pct=0.1) == "HOLD"
 
 
 class TestEnsemble:
@@ -149,6 +177,18 @@ class TestEnsemble:
 
         assert signal == "BUY"
         assert mult == 1.0
+
+    @patch("app.services.ml.ensemble.settings")
+    def test_ensemble_smart_veto_buy_trap(self, mock_settings):
+        """When live Triple-Barrier probabilities predict SL first, ensemble vetoes a BUY trap."""
+        mock_settings.ML_ENABLED = True
+        from app.services.ml.ensemble import ensemble_predict
+
+        live_feats = {"_ml_buy_prob": 0.18, "_ml_sell_prob": 0.62}
+        signal, mult = ensemble_predict("BTCUSDC", "BUY", live_feats, "SELL", 0.62)
+
+        assert signal is None
+        assert mult == 0.0
 
 
 class TestMLConfig:

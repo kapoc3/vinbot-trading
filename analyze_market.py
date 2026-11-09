@@ -7,7 +7,7 @@ import sys
 sys.path.insert(0, '/app')
 
 from app.services.indicators import get_symbol_data, market_indicators
-from app.services.binance_client import ProductionBinanceClient
+from app.services.binance_client import binance_client
 from app.core.config import get_settings
 
 async def analyze_symbol(symbol: str, klines: list) -> dict:
@@ -50,8 +50,7 @@ async def analyze_symbol(symbol: str, klines: list) -> dict:
     }
 
 async def main():
-    client = ProductionBinanceClient()
-    await client.sync_time()
+    await binance_client.sync_time()
     
     settings = get_settings()
     symbols = settings.TRADING_SYMBOLS.split(',')
@@ -70,7 +69,7 @@ async def main():
         # Obtener últimos 200 klines (aprox 3+ horas de datos)
         import httpx
         try:
-            resp = await client.client.get("/api/v3/klines", params={
+            resp = await binance_client.client.get("/api/v3/klines", params={
                 'symbol': symbol,
                 'interval': '1m',
                 'limit': 200
@@ -143,7 +142,7 @@ async def main():
         print("No hay símbolos en zona de compra clara.")
         print("Esperando a que RSI baje de 35 para comprar.")
     
-    await client.close()
+    await binance_client.close()
 
 if __name__ == "__main__":
     asyncio.run(main())

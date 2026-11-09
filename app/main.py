@@ -67,43 +67,48 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
         
         logger.warning(f"RISK | Action {risk_signal} triggered for {symbol}")
         try:
-            # 1.1 Calculate Realized Units for PnL (Estimated)
-            # PnL = (ClosePrice - EntryPrice) * Quantity
             entry_p = risk_manager.entry_prices.get(symbol, 0)
-            realized_pnl_units = (close_price - entry_p) * qty_to_sell
-            
-            # Notify risk BEFORE liquidation
             quote_asset = "USDC" if "USDC" in symbol else "USDT"
-            bal_info = await binance_client.get_asset_balance(quote_asset)
-            current_bal = float(bal_info.get("free", 0.0))
-            await notification_service.notify_risk(risk_signal, symbol, close_price, pnl, balance=current_bal, quote_asset=quote_asset)
-            
-            # 1.2 Format for Binance LOT_SIZE before selling
+
+            # 1.1 Format for Binance LOT_SIZE before selling
             lot_info = await binance_client.get_exchange_info(symbol)
             step_size = float(lot_info.get("stepSize", 0.000001))
             quantity = binance_client.round_step(qty_to_sell, step_size)
-            
-            # Record Realized PnL summary
-            await risk_manager.update_daily_pnl(realized_pnl_units)
-            
-            # Place the SELL order
-            order = await trading_engine.place_market_order(symbol, "SELL", quantity=quantity, rsi=None)
-            
+
+            # 1.2 Place the SELL order (suppress duplicate raw order notification)
+            order = await trading_engine.place_market_order(symbol, "SELL", quantity=quantity, rsi=None, notify=False)
+            exec_price = float(order.get("price", 0) or order.get("fills", [{}])[0].get("price", 0) or close_price)
+            exec_qty = float(order.get("executedQty", quantity))
+            realized_pnl_units = (exec_price - entry_p) * exec_qty if entry_p > 0 else 0.0
+
             if risk_signal == "PARTIAL_TP":
-                # Update partial state, move SL if needed
-                await risk_manager.update_partial_execution(symbol, qty_to_sell)
+                await risk_manager.update_partial_execution(symbol, exec_qty)
                 logger.info(f"RISK | Partial TP Order Successful: {order.get('orderId')}")
             else:
-                # Final exit (SL or Final TP)
                 await rsi_strategy.update_position(symbol, False)
                 await risk_manager.clear_entry_price(symbol)
                 logger.info(f"RISK | Exit Order Successful: {order.get('orderId')}")
-            
-            # Record Realized PnL summary
+
+            # 1.3 Record Realized PnL once and send unified trade closed notification
             await risk_manager.update_daily_pnl(realized_pnl_units)
-                
+            bal_info = await binance_client.get_asset_balance(quote_asset)
+            current_bal = float(bal_info.get("free", 0.0))
+            await notification_service.notify_trade_closed(
+                signal=risk_signal,
+                symbol=symbol,
+                entry_price=entry_p,
+                exit_price=exec_price,
+                qty=exec_qty,
+                pnl_pct=pnl,
+                pnl_usd=realized_pnl_units,
+                daily_pnl=risk_manager.daily_pnl,
+                balance=current_bal,
+                quote_asset=quote_asset,
+            )
+
         except Exception as e:
             logger.error(f"RISK | Failed to execute risk exit for {symbol}: {e}")
+            await notification_service.notify_critical_error(f"Fallo Salida {risk_signal}", symbol, str(e))
 
     # 2. Sequential Logic on Kline Close
     if is_closed:
@@ -125,6 +130,31 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
         if rsi:
             trading_rsi.labels(symbol=symbol).set(rsi)
             logger.info(f"Kline Closed | {symbol} RSI: {rsi:.2f}")
+
+            # Live Local AI & Order Book Imbalance telemetry + forward accuracy verification
+            obi = await binance_client.get_order_book_imbalance(symbol, limit=20)
+            try:
+                from app.core.metrics import trading_orderbook_imbalance
+                trading_orderbook_imbalance.labels(symbol=symbol).set(obi)
+            except Exception:
+                pass
+
+            if settings.ML_ENABLED and len(symbol_data.closes) >= 50:
+                try:
+                    from app.services.ml.feature_engineering import extract_features
+                    from app.services.ml.predictor import ml_predictor
+                    live_feats = extract_features(symbol_data)
+                    if live_feats:
+                        ml_predictor.record_and_verify_candle(
+                            symbol=symbol,
+                            close_price=close_price,
+                            high_price=float(kline.get("h", close_price)),
+                            low_price=float(kline.get("l", close_price)),
+                            features=live_feats,
+                            obi=obi,
+                        )
+                except Exception as e:
+                    logger.debug(f"ML live telemetry error for {symbol}: {e}")
             
             # Analyze strategy signal
             # Note: signal handles trailing stop and volume confirmation internally via proxy
@@ -136,6 +166,21 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
                 # Determine Quantity
                 if side == "BUY":
                     pos_mult = rsi_strategy.get_position_multiplier(symbol) if hasattr(rsi_strategy, "get_position_multiplier") else 1.0
+
+                    # Microstructure Order Book Imbalance (OBI) check before committing capital
+                    if obi < -0.35:
+                        logger.info(
+                            f"OBI VETO | {symbol} BUY blocked by heavy Ask Wall in Order Book (OBI={obi:.2f} < -0.35)"
+                        )
+                        try:
+                            from app.core.metrics import trading_ml_vetoes_total
+                            trading_ml_vetoes_total.labels(symbol=symbol, reason="orderbook_imbalance").inc()
+                        except Exception:
+                            pass
+                        return
+                    elif obi > 0.25:
+                        pos_mult = min(1.25, pos_mult * 1.1)
+                        logger.info(f"OBI BOOST | {symbol} strong Bid support (OBI={obi:.2f}), mult -> {pos_mult:.2f}x")
                     if settings.ENABLE_DYNAMIC_SIZING:
                         # Calculate SL price using ATR volatility when available, otherwise percentage fallback
                         pct_sl = close_price * (1 - settings.STOP_LOSS_PCT / 100.0)
@@ -187,7 +232,10 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
 
                 try:
                     logger.info(f"EXECUTION | Placing {side} order for {symbol} at {close_price} (Qty: {quantity})")
-                    order = await trading_engine.place_market_order(symbol, side, quantity, rsi=rsi)
+                    entry_p_before = risk_manager.entry_prices.get(symbol, 0.0)
+                    order = await trading_engine.place_market_order(
+                        symbol, side, quantity, rsi=rsi, notify=(side == "BUY")
+                    )
                     
                     # Update local states
                     if side == "BUY":
@@ -202,12 +250,34 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
 
                         await rsi_strategy.update_position(symbol, True)
                     else:
+                        exec_price = float(order.get("price", 0) or order.get("fills", [{}])[0].get("price", 0) or close_price)
+                        exec_qty = float(order.get("executedQty", quantity))
+                        realized_pnl_units = (exec_price - entry_p_before) * exec_qty if entry_p_before > 0 else 0.0
+                        pnl_pct = ((exec_price - entry_p_before) / entry_p_before) * 100.0 if entry_p_before > 0 else 0.0
+                        await risk_manager.update_daily_pnl(realized_pnl_units)
                         await rsi_strategy.update_position(symbol, False)
                         await risk_manager.clear_entry_price(symbol)
+
+                        quote_asset = "USDC" if "USDC" in symbol else "USDT"
+                        bal_info = await binance_client.get_asset_balance(quote_asset)
+                        current_bal = float(bal_info.get("free", 0.0))
+                        await notification_service.notify_trade_closed(
+                            signal="STRATEGY_SELL",
+                            symbol=symbol,
+                            entry_price=entry_p_before,
+                            exit_price=exec_price,
+                            qty=exec_qty,
+                            pnl_pct=pnl_pct,
+                            pnl_usd=realized_pnl_units,
+                            daily_pnl=risk_manager.daily_pnl,
+                            balance=current_bal,
+                            quote_asset=quote_asset,
+                        )
                         
                     logger.info(f"EXECUTION | Order Success: {order.get('orderId')}")
                 except Exception as e:
                     logger.error(f"EXECUTION | Order Failed for {symbol}: {e}")
+                    await notification_service.notify_critical_error(f"Orden {side} Rechazada", symbol, str(e))
         else:
             logger.info(f"Kline Closed | {symbol} (Waiting for more data...)")
 
@@ -248,18 +318,20 @@ async def background_metrics_task():
             binance_wallet_balance.labels(asset=quote_asset).set(current_bal)
         except Exception as e:
             logger.error(f"Error updating wallet balance metric: {e}")
+            if "401" in str(e) or "-2015" in str(e):
+                await notification_service.notify_critical_error("API Key / IP Bloqueada en Binance", "ACCOUNT", str(e))
 
 async def auto_train_symbol_model(symbol: str):
-    """Fetch 500 historical klines and train/refresh the local ML model for a symbol in a worker thread."""
+    """Fetch 1000 historical 1m klines and train/refresh the local Triple-Barrier ML ensemble in a worker thread."""
     if not (settings.ML_ENABLED and settings.ML_AUTO_TRAIN_ENABLED):
         return
     try:
-        from app.services.ml.feature_engineering import extract_features, generate_labels
+        from app.services.ml.feature_engineering import extract_features, generate_triple_barrier_label
         from app.services.ml.trainer import train_model
         from app.services.ml.predictor import ml_predictor
 
-        raw_klines = await market_service.get_historical_klines(symbol, "15m", limit=500)
-        if not raw_klines or len(raw_klines) < 120:
+        raw_klines = await market_service.get_historical_klines(symbol, "1m", limit=1000)
+        if not raw_klines or len(raw_klines) < 150:
             return
 
         kline_dicts = [
@@ -267,35 +339,41 @@ async def auto_train_symbol_model(symbol: str):
             for k in raw_klines
         ]
 
-        horizon = settings.ML_TRAIN_HORIZON
-        threshold = settings.ML_TRAIN_THRESHOLD_PCT
-        X_samples = []
-        y_labels = []
+        horizon = max(15, settings.ML_TRAIN_HORIZON * 3)
+        # Short-term realistic 1m Triple-Barrier thresholds calibrated for fees + slippage
+        tp_barrier_pct = min(settings.TAKE_PROFIT_PCT, 0.75)
+        sl_barrier_pct = min(settings.STOP_LOSS_PCT, 0.55)
+        def _prepare_and_train():
+            X_samples = []
+            y_labels = []
+            for idx in range(50, len(kline_dicts) - horizon):
+                window = kline_dicts[idx - 50 : idx]
+                feats = extract_features(window)
+                if not feats:
+                    continue
+                current_close = kline_dicts[idx - 1]["c"]
+                future_window = kline_dicts[idx : idx + horizon]
+                lbl = generate_triple_barrier_label(
+                    future_klines=future_window,
+                    entry_price=current_close,
+                    tp_pct=tp_barrier_pct,
+                    sl_pct=sl_barrier_pct,
+                    fee_pct=0.12,
+                )
+                X_samples.append(feats)
+                y_labels.append(lbl)
 
-        for idx in range(50, len(kline_dicts) - horizon):
-            window = kline_dicts[idx - 50 : idx]
-            feats = extract_features(window)
-            if not feats:
-                continue
-            current_close = kline_dicts[idx - 1]["c"]
-            future_close = kline_dicts[idx - 1 + horizon]["c"]
-            ret_pct = ((future_close - current_close) / current_close) * 100.0 if current_close > 0 else 0.0
-            if ret_pct > threshold:
-                lbl = "BUY"
-            elif ret_pct < -threshold:
-                lbl = "SELL"
-            else:
-                lbl = "HOLD"
-            X_samples.append(feats)
-            y_labels.append(lbl)
+            if len(X_samples) >= 80:
+                return len(X_samples), train_model(X_samples, y_labels, symbol, settings.ML_MODEL_PATH)
+            return len(X_samples), None
 
-        if len(X_samples) >= 50:
-            trained = await asyncio.to_thread(
-                train_model, X_samples, y_labels, symbol, settings.ML_MODEL_PATH
+        n_samples, trained = await asyncio.to_thread(_prepare_and_train)
+        if trained:
+            ml_predictor.models.pop(symbol, None)
+            logger.info(
+                f"ML AUTO-TRAIN | Triple-Barrier Ensemble refreshed for {symbol} "
+                f"({n_samples} 1m samples, horizon={horizon}m)"
             )
-            if trained:
-                ml_predictor.models.pop(symbol, None)
-                logger.info(f"ML AUTO-TRAIN | Local model refreshed for {symbol} ({len(X_samples)} samples)")
     except Exception as e:
         logger.warning(f"ML AUTO-TRAIN | Could not train local model for {symbol}: {e}")
 
@@ -355,6 +433,25 @@ async def run_trading_bot():
             })
         logger.info(f"Warm-up complete for {symbol}. RSI: {symbol_data.get_rsi()}")
         await auto_train_symbol_model(symbol)
+        if settings.ML_ENABLED and len(symbol_data.closes) >= 50:
+            try:
+                from app.services.ml.feature_engineering import extract_features
+                from app.services.ml.predictor import ml_predictor
+                from app.core.metrics import trading_orderbook_imbalance
+                obi_init = await binance_client.get_order_book_imbalance(symbol, limit=20)
+                trading_orderbook_imbalance.labels(symbol=symbol).set(obi_init)
+                init_feats = extract_features(symbol_data)
+                if init_feats:
+                    ml_predictor.record_and_verify_candle(
+                        symbol=symbol,
+                        close_price=symbol_data.closes[-1],
+                        high_price=symbol_data.highs[-1] if symbol_data.highs else symbol_data.closes[-1],
+                        low_price=symbol_data.lows[-1] if symbol_data.lows else symbol_data.closes[-1],
+                        features=init_feats,
+                        obi=obi_init,
+                    )
+            except Exception as e:
+                logger.debug(f"Initial ML telemetry error for {symbol}: {e}")
 
     tasks = []
     for symbol in symbols:
@@ -366,7 +463,8 @@ async def run_trading_bot():
 async def lifespan(app: FastAPI):
     logger.info("Application starting up...")
     await db.connect()
-    # await notification_service.notify_status("ONLINE and monitoring markets")
+    if settings.NOTIFY_STARTUP_SHUTDOWN:
+        await notification_service.notify_status(f"ONLINE monitoring {settings.TRADING_SYMBOLS}", silent=True)
     
     bot_task = asyncio.create_task(run_trading_bot())
     report_task = asyncio.create_task(background_report_task())
@@ -375,7 +473,8 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown
     logger.info("Application shutting down...")
-    # await notification_service.notify_status("OFFLINE / shutting down")
+    if settings.NOTIFY_STARTUP_SHUTDOWN:
+        await notification_service.notify_status("OFFLINE / shutting down", silent=True)
     bot_task.cancel()
     report_task.cancel()
     metrics_task.cancel()
