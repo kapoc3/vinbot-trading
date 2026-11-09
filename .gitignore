@@ -10,3 +10,4 @@ data/
 *.db
 .env*
 !.env.example
+!.env.*.example
