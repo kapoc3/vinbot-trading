@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=3">
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 </head>
 <body>
@@ -35,7 +35,16 @@
         </header>
 
         <!-- Main Dashboard Cards -->
-        <section class="metrics-grid">
+        <section class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
+            <div class="card glass" style="border-color: rgba(16, 185, 129, 0.25);">
+                <div class="card-icon">💰</div>
+                <div class="card-content">
+                    <h3>Capital Total (Binance)</h3>
+                    <p class="metric-value positive" id="wallet-total-usd">$0.00</p>
+                    <span class="metric-subtext" id="wallet-breakdown-subtext">Cargando balance real...</span>
+                </div>
+            </div>
+
             <div class="card glass">
                 <div class="card-icon">💵</div>
                 <div class="card-content">
@@ -61,6 +70,30 @@
                     <p class="metric-value" id="strategy-mode">Auto</p>
                     <span class="metric-subtext" id="trade-allowed-status">Cargando permisos...</span>
                 </div>
+            </div>
+        </section>
+
+        <!-- Binance Spot Wallet & Crypto Holdings -->
+        <section class="section-container glass">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+                <h2 style="margin-bottom: 0; border-left: 4px solid #f59e0b; padding-left: 0.75rem;">🏦 Mi Portafolio Real en Binance (Criptos y Liquidez Activa)</h2>
+                <span class="regime-tag trending" id="wallet-goal-badge">Meta $100 USDC: Calculando...</span>
+            </div>
+
+            <!-- Goal & Allocation Progress Bar -->
+            <div style="margin-bottom: 1.25rem;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.4rem;">
+                    <span id="wallet-summary-line">Liquidez Libre (Stablecoins): $0.00 | Invertido en Cripto: $0.00</span>
+                    <span id="wallet-goal-pct-text" style="font-weight: 600; color: var(--accent-green);">0% hacia $100.00 USDC</span>
+                </div>
+                <div style="height: 10px; width: 100%; background: rgba(255,255,255,0.06); border-radius: 6px; overflow: hidden; display: flex;" id="wallet-goal-bar">
+                    <div style="width: 0%; background: linear-gradient(90deg, #10b981, #3b82f6); transition: width 0.5s ease;"></div>
+                </div>
+            </div>
+
+            <!-- Per-Asset Holdings Grid -->
+            <div class="symbols-grid" id="wallet-assets-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));">
+                <div class="loading-placeholder">Consultando saldos reales en Binance Spot...</div>
             </div>
         </section>
 
@@ -103,8 +136,11 @@
         <!-- Local AI & Microstructure Analytics -->
         <section class="section-container glass">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
-                <h2 style="margin-bottom: 0; border-left: 4px solid #10b981; padding-left: 0.75rem;">🧠 Inteligencia Artificial Local (Triple-Barrier Ensemble & Order Book)</h2>
-                <span class="regime-tag trending" id="ai-engine-badge">ENSEMBLE ACTIVO</span>
+                <h2 style="margin-bottom: 0; border-left: 4px solid #10b981; padding-left: 0.75rem;">🧠 Inteligencia Artificial Cuádruple (Kronos Foundation + Ensemble + OBI)</h2>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <span class="regime-tag" style="background: rgba(147, 51, 234, 0.2); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.4);">KRONOS-MINI 4.1M</span>
+                    <span class="regime-tag trending" id="ai-engine-badge">ENSEMBLE ACTIVO</span>
+                </div>
             </div>
 
             <!-- AI Accuracy KPI Row -->
@@ -112,7 +148,7 @@
                 <div class="stat-box">
                     <span class="stat-label">Modelos Entrenados (1m)</span>
                     <span class="stat-value" id="ai-models-count">0</span>
-                    <span class="metric-subtext">GradientBoosting + RF + ExtraTrees</span>
+                    <span class="metric-subtext">HistGB + RF + Kronos Mini</span>
                 </div>
                 <div class="stat-box">
                     <span class="stat-label">Precisión Walk-Forward (CV)</span>
@@ -128,6 +164,20 @@
                     <span class="stat-label">Compras Peligrosas Vetadas</span>
                     <span class="stat-value positive" id="ai-vetoes-count">0</span>
                     <span class="metric-subtext" id="ai-vetoes-saved-sub">Stop-Loss evitados por IA/OBI</span>
+                </div>
+            </div>
+
+            <!-- 4th Brain Kronos Highlight Banner -->
+            <div style="background: linear-gradient(90deg, rgba(147, 51, 234, 0.12) 0%, rgba(59, 130, 246, 0.08) 100%); border: 1px solid rgba(147, 51, 234, 0.3); border-radius: 8px; padding: 0.85rem 1.25rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <span style="font-size: 1.5rem;">🔮</span>
+                    <div>
+                        <div style="font-weight: 700; font-size: 0.95rem; color: #e9d5ff;">4to Cerebro Operativo: Financial Foundation Model (Kronos-mini)</div>
+                        <div style="font-size: 0.8rem; color: var(--text-secondary);">Pre-entrenado en 12.000 millones de velas japonesas (K-lines) de 45 exchanges mundiales para anticipar rupturas y proteger capital.</div>
+                    </div>
+                </div>
+                <div id="kronos-status-pill" style="font-size: 0.8rem; font-weight: 700; color: #a855f7; background: rgba(147, 51, 234, 0.2); padding: 0.35rem 0.75rem; border-radius: 9999px; border: 1px solid rgba(147, 51, 234, 0.4);">
+                    ⚡ Sincronizado en tiempo real (1m)
                 </div>
             </div>
 
@@ -148,7 +198,7 @@
                             <th>Señal IA (Conf.)</th>
                             <th>P(Take Profit) vs P(Stop Loss)</th>
                             <th>Order Book (OBI)</th>
-                            <th>Veredicto Real (15m)</th>
+                            <th>Veredicto Real (10m)</th>
                         </tr>
                     </thead>
                     <tbody id="ai-decisions-tbody">
@@ -194,24 +244,35 @@
         <!-- Recent Trades & Date Log Filter -->
         <section class="section-container glass">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
-                <h2 style="margin-bottom: 0; border-left: 4px solid var(--accent-blue); padding-left: 0.75rem;">Historial de Operaciones</h2>
+                <h2 style="margin-bottom: 0; border-left: 4px solid var(--accent-blue); padding-left: 0.75rem;">Historial de Operaciones y Ganancia Real (Compra ↔ Venta)</h2>
                 <div class="filter-controls" style="display: flex; align-items: center; gap: 0.75rem;">
                     <label for="filter-date" style="font-size: 0.85rem; color: var(--text-secondary); font-weight: 600;">Filtrar por Día:</label>
                     <input type="date" id="filter-date" class="date-input">
                     <button class="btn btn-primary" id="btn-clear-filter" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">Mostrar Todo</button>
                 </div>
             </div>
+
+            <!-- Closed Buy-Sell Cycles Summary -->
+            <div style="margin-bottom: 1.5rem;">
+                <h3 style="font-size: 0.95rem; color: var(--text-secondary); margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">
+                    🔄 Ciclos Cerrados (Ventas Asociadas a sus Compras y Ganancia Real)
+                </h3>
+                <div id="closed-cycles-grid" class="symbols-grid">
+                    <div class="loading-placeholder">Analizando ciclos de compra y venta...</div>
+                </div>
+            </div>
+
             <div class="table-container">
                 <table class="trades-table">
                     <thead>
                         <tr>
                             <th>Fecha</th>
-                            <th>ID Orden</th>
+                            <th>ID Orden / Asociación</th>
                             <th>Par</th>
                             <th>Operación</th>
-                            <th>Precio Ejecución</th>
-                            <th>Cantidad</th>
-                            <th>RSI</th>
+                            <th>Precio Compra → Venta</th>
+                            <th>Cantidad (Valor USD)</th>
+                            <th>Ganancia Real (PnL)</th>
                         </tr>
                     </thead>
                     <tbody id="trades-tbody">
@@ -227,6 +288,6 @@
     <!-- Floating Notification Container -->
     <div class="toast-container" id="toast-container"></div>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=6"></script>
 </body>
 </html>

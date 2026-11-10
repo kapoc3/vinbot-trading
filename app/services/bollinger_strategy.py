@@ -7,10 +7,12 @@ from app.services.persistence import persistence
 logger = logging.getLogger(__name__)
 
 class BollingerBandsStrategy:
-    def __init__(self, rsi_period: int = 14, overbought: float = 70.0, oversold: float = 30.0, bb_period: int = 20, bb_std_dev: float = 2.0):
-        self.rsi_period = rsi_period
-        self.overbought = overbought
-        self.oversold = oversold
+    def __init__(self, rsi_period: Optional[int] = None, overbought: Optional[float] = None, oversold: Optional[float] = None, bb_period: int = 20, bb_std_dev: float = 2.0):
+        from app.core.config import get_settings
+        config = get_settings()
+        self.rsi_period = rsi_period or config.RSI_PERIOD
+        self.overbought = overbought or config.RSI_OVERBOUGHT
+        self.oversold = oversold or config.RSI_OVERSOLD
         self.bb_period = bb_period
         self.bb_std_dev = bb_std_dev
         # Flag to track if we are currently holding a position for a symbol
@@ -43,6 +45,17 @@ class BollingerBandsStrategy:
         
         # BUY signal: Price < Lower Band AND RSI < Oversold AND not in position
         if current_price < bb["lower"] and rsi < self.oversold and not current_in_position:
+            # Volatility Filter: avoid tight squeeze/compression where profit cannot cover spread & commissions
+            middle = bb.get("middle") or current_price
+            bandwidth_pct = ((bb["upper"] - bb["lower"]) / middle) * 100.0 if middle > 0 else 0.0
+            from app.core.config import get_settings
+            min_bw = getattr(get_settings(), "MIN_BB_BANDWIDTH_PCT", 1.0)
+            if bandwidth_pct < min_bw:
+                logger.info(
+                    f"STRATEGY | {symbol} BUY suppressed: Bollinger BandWidth {bandwidth_pct:.2f}% < {min_bw:.1f}% (Market compressed)"
+                )
+                return None
+
             if not risk_manager.is_trading_allowed():
                 logger.warning(f"STRATEGY | BUY signal blocked by RISK MANAGER for {symbol}")
                 return None

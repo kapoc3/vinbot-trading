@@ -11,6 +11,8 @@ from app.services.statistics import statistics_service
 from app.services.regime_service import regime_service, MarketRegime
 from app.services.strategy_factory import strategy_manager, current_strategy
 from app.services.notifications import notification_service
+from app.services.binance_client import binance_client
+from app.services.persistence import persistence
 from app.core.database import db
 from app.core.config import get_settings
 
@@ -30,6 +32,152 @@ _cache = {
     "timestamp": 0.0
 }
 CACHE_DURATION_SECS = 5.0
+
+_wallet_cache = {
+    "data": None,
+    "timestamp": 0.0
+}
+WALLET_CACHE_DURATION_SECS = 15.0
+
+STABLECOINS = {"USDC", "USDT", "FDUSD", "BUSD", "DAI", "TUSD"}
+
+
+async def _fetch_wallet_portfolio() -> Dict[str, Any]:
+    """Fetch real-time Spot wallet balances from Binance and compute USD valuations."""
+    now = time.time()
+    if _wallet_cache["data"] is not None and (now - _wallet_cache["timestamp"]) < WALLET_CACHE_DURATION_SECS:
+        return _wallet_cache["data"]
+
+    default_wallet = {
+        "total_usd": 0.0,
+        "free_stable_usd": 0.0,
+        "locked_usd": 0.0,
+        "invested_crypto_usd": 0.0,
+        "goal_usd": 100.0,
+        "goal_progress_pct": 0.0,
+        "assets": [],
+        "updated_at": now,
+    }
+
+    # Skip network calls in mock mode or unit test mocks
+    api_key = getattr(settings, "BINANCE_API_KEY", None)
+    env_mode = getattr(settings, "BINANCE_ENV", "mock")
+    if env_mode == "mock" or not isinstance(api_key, str) or not api_key or "mock" in api_key.lower():
+        return default_wallet
+
+    try:
+        account = await binance_client.request("GET", "/api/v3/account", signed=True)
+        tickers = await binance_client.request("GET", "/api/v3/ticker/price", signed=False)
+
+        price_map: Dict[str, float] = {}
+        if isinstance(tickers, list):
+            for t in tickers:
+                if "symbol" in t and "price" in t:
+                    try:
+                        price_map[t["symbol"]] = float(t["price"])
+                    except (ValueError, TypeError):
+                        pass
+
+        raw_balances = account.get("balances", []) if isinstance(account, dict) else []
+        assets_list: List[Dict[str, Any]] = []
+
+        for b in raw_balances:
+            asset = str(b.get("asset", "")).upper()
+            if not asset:
+                continue
+            free = float(b.get("free", 0.0) or 0.0)
+            locked = float(b.get("locked", 0.0) or 0.0)
+            total = free + locked
+            if total <= 0:
+                continue
+
+            is_stable = asset in STABLECOINS
+            if is_stable:
+                price_usd = 1.0
+            else:
+                price_usd = (
+                    price_map.get(f"{asset}USDC")
+                    or price_map.get(f"{asset}USDT")
+                    or price_map.get(f"{asset}FDUSD")
+                    or price_map.get(f"{asset}BUSD")
+                    or 0.0
+                )
+                if price_usd == 0.0 and f"USDC{asset}" in price_map and price_map[f"USDC{asset}"] > 0:
+                    price_usd = 1.0 / price_map[f"USDC{asset}"]
+
+            usd_value = total * price_usd
+            # Filter out sub-cent dust unless it's >= $0.005
+            if usd_value < 0.005:
+                continue
+
+            # Check if bot tracks an open entry price for this asset (across both classic and scalper DBs)
+            entry_price = 0.0
+            unrealized_pnl_pct = None
+            if not is_stable:
+                try:
+                    ep_usdc = await persistence.get_state(f"{asset.lower()}usdc_entry_price", 0.0)
+                    ep_usdt = await persistence.get_state(f"{asset.lower()}usdt_entry_price", 0.0)
+                    entry_price = float(ep_usdc or ep_usdt or risk_manager.entry_prices.get(f"{asset}USDC", 0.0) or 0.0)
+                    if entry_price == 0.0:
+                        import sqlite3
+                        import os
+                        import json as _json
+                        for db_file in ("data/vinbot_scalper.db", "data/vinbot_classic.db"):
+                            if os.path.exists(db_file):
+                                with sqlite3.connect(db_file) as sconn:
+                                    r = sconn.execute(
+                                        "SELECT value FROM bot_state WHERE key IN (?, ?)",
+                                        (f"{asset.lower()}usdc_entry_price", f"{asset.lower()}usdt_entry_price"),
+                                    ).fetchone()
+                                    if r and r[0]:
+                                        val = float(_json.loads(r[0]))
+                                        if val > 0:
+                                            entry_price = val
+                                            break
+                    if entry_price > 0 and price_usd > 0:
+                        unrealized_pnl_pct = round(((price_usd - entry_price) / entry_price) * 100.0, 2)
+                except Exception:
+                    pass
+
+            assets_list.append({
+                "asset": asset,
+                "free": round(free, 8),
+                "locked": round(locked, 8),
+                "total": round(total, 8),
+                "price_usd": round(price_usd, 6 if price_usd < 1.0 else 4),
+                "usd_value": round(usd_value, 2),
+                "is_stable": is_stable,
+                "in_bot_position": entry_price > 0 and usd_value >= 5.0,
+                "entry_price": round(entry_price, 4) if entry_price > 0 else None,
+                "unrealized_pnl_pct": unrealized_pnl_pct,
+            })
+
+        assets_list.sort(key=lambda x: x["usd_value"], reverse=True)
+        total_usd = round(sum(a["usd_value"] for a in assets_list), 2)
+        free_stable_usd = round(sum(a["free"] * a["price_usd"] for a in assets_list if a["is_stable"]), 2)
+        locked_usd = round(sum(a["locked"] * a["price_usd"] for a in assets_list), 2)
+        invested_crypto_usd = round(sum(a["usd_value"] for a in assets_list if not a["is_stable"]), 2)
+
+        for a in assets_list:
+            a["allocation_pct"] = round((a["usd_value"] / total_usd) * 100.0, 1) if total_usd > 0 else 0.0
+
+        goal_usd = 100.0
+        wallet_snapshot = {
+            "total_usd": total_usd,
+            "free_stable_usd": free_stable_usd,
+            "locked_usd": locked_usd,
+            "invested_crypto_usd": invested_crypto_usd,
+            "goal_usd": goal_usd,
+            "goal_progress_pct": round(min(100.0, (total_usd / goal_usd) * 100.0), 1) if goal_usd > 0 else 0.0,
+            "assets": assets_list,
+            "updated_at": now,
+        }
+        _wallet_cache["data"] = wallet_snapshot
+        _wallet_cache["timestamp"] = now
+        return wallet_snapshot
+    except Exception as e:
+        logger.error(f"DASHBOARD | Error fetching Binance wallet portfolio: {e}")
+        return _wallet_cache["data"] or default_wallet
 
 # Helpers for Session Authentication
 def get_expected_signature(username: str) -> str:
@@ -90,6 +238,156 @@ async def logout(response: Response, username: str = Depends(verify_session)):
 
 # --- Data & Control Endpoints ---
 
+def _link_orders_buy_sell(all_orders: List[Dict[str, Any]], live_prices: Optional[Dict[str, float]] = None) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Match BUY and SELL orders chronologically (FIFO per symbol) so every SELL
+    identifies which BUY order(s) it closed, the weighted-average buy price,
+    and the exact realized profit/loss in USD and %, and every BUY shows which
+    SELL order closed it (or if it remains open in the portfolio).
+    """
+    from collections import defaultdict
+
+    chronological = [dict(o) for o in all_orders]
+    chronological.sort(key=lambda x: str(x.get("timestamp", "")))
+
+    buy_queues: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    closed_cycles: List[Dict[str, Any]] = []
+
+    for order in chronological:
+        sym = str(order.get("symbol", ""))
+        side = str(order.get("side", "BUY")).upper()
+        price = float(order.get("price") or 0.0)
+        qty = float(order.get("quantity") or 0.0)
+        order["order_value_usd"] = round(price * qty, 2)
+        order["buy_price"] = round(price, 4) if side == "BUY" else None
+        order["sell_price"] = round(price, 4) if side == "SELL" else None
+        order["pnl_usd"] = None
+        order["pnl_pct"] = None
+        order["linked_order_ids"] = []
+        order["linked_text"] = ""
+        order["trade_status"] = "OPEN" if side == "BUY" else "UNLINKED_SELL"
+
+        if side == "BUY" and price > 0 and qty > 0:
+            order["_rem_qty"] = qty
+            order["_matched_sells"] = []
+            buy_queues[sym].append(order)
+        elif side == "SELL" and price > 0 and qty > 0:
+            rem_to_match = qty
+            matched_cost_usd = 0.0
+            matched_qty = 0.0
+            matched_buy_ids: List[Any] = []
+            matched_details: List[Dict[str, Any]] = []
+
+            queue = buy_queues[sym]
+            while rem_to_match > 1e-8 and queue:
+                buy_lot = queue[0]
+                take_qty = min(rem_to_match, buy_lot["_rem_qty"])
+                b_price = float(buy_lot.get("price") or 0.0)
+                lot_cost = take_qty * b_price
+                lot_proceeds = take_qty * price
+                lot_pnl = lot_proceeds - lot_cost
+
+                matched_cost_usd += lot_cost
+                matched_qty += take_qty
+                rem_to_match -= take_qty
+                buy_lot["_rem_qty"] -= take_qty
+
+                b_id = buy_lot.get("order_id")
+                matched_buy_ids.append(b_id)
+                matched_details.append({
+                    "buy_order_id": b_id,
+                    "buy_price": round(b_price, 4),
+                    "qty": round(take_qty, 6),
+                    "cost_usd": round(lot_cost, 2),
+                    "pnl_usd": round(lot_pnl, 4),
+                    "buy_timestamp": buy_lot.get("timestamp"),
+                })
+                buy_lot["_matched_sells"].append({
+                    "sell_order_id": order.get("order_id"),
+                    "sell_price": price,
+                    "qty": take_qty,
+                    "pnl_usd": lot_pnl,
+                    "sell_timestamp": order.get("timestamp"),
+                })
+
+                # Pop lot if >=97% consumed (accounts for Binance stepSize rounding dust)
+                if buy_lot["_rem_qty"] <= float(buy_lot.get("quantity") or 0.0) * 0.03:
+                    queue.pop(0)
+
+            if matched_qty > 0:
+                avg_buy_price = matched_cost_usd / matched_qty
+                sell_proceeds_usd = price * matched_qty
+                realized_pnl_usd = sell_proceeds_usd - matched_cost_usd
+                realized_pnl_pct = ((price - avg_buy_price) / avg_buy_price) * 100.0 if avg_buy_price > 0 else 0.0
+
+                order["trade_status"] = "CLOSED_SELL"
+                order["buy_price"] = round(avg_buy_price, 4)
+                order["sell_price"] = round(price, 4)
+                order["buy_cost_usd"] = round(matched_cost_usd, 2)
+                order["sell_value_usd"] = round(sell_proceeds_usd, 2)
+                order["pnl_usd"] = round(realized_pnl_usd, 4)
+                order["pnl_pct"] = round(realized_pnl_pct, 2)
+                order["linked_order_ids"] = matched_buy_ids
+                order["matched_details"] = matched_details
+
+                if len(matched_buy_ids) == 1:
+                    order["linked_text"] = f"🔗 Cierra Compra #{matched_buy_ids[0]} (a ${avg_buy_price:.2f})"
+                else:
+                    ids_str = ", ".join(f"#{bid}" for bid in matched_buy_ids)
+                    order["linked_text"] = f"🔗 Cierra {len(matched_buy_ids)} Compras ({ids_str})"
+
+                closed_cycles.append({
+                    "sell_order_id": order.get("order_id"),
+                    "symbol": sym,
+                    "timestamp": order.get("timestamp"),
+                    "quantity": round(matched_qty, 6),
+                    "avg_buy_price": round(avg_buy_price, 4),
+                    "sell_price": round(price, 4),
+                    "buy_cost_usd": round(matched_cost_usd, 2),
+                    "sell_value_usd": round(sell_proceeds_usd, 2),
+                    "pnl_usd": round(realized_pnl_usd, 4),
+                    "pnl_pct": round(realized_pnl_pct, 2),
+                    "linked_buy_ids": matched_buy_ids,
+                    "matched_details": matched_details,
+                })
+
+    # Finalize BUY rows with their realized or unrealized status
+    for order in chronological:
+        if str(order.get("side", "")).upper() == "BUY":
+            matched_sells = order.pop("_matched_sells", [])
+            order.pop("_rem_qty", None)
+            b_price = float(order.get("price") or 0.0)
+            qty = float(order.get("quantity") or 0.0)
+            sym = str(order.get("symbol", ""))
+
+            if matched_sells:
+                tot_q = sum(ms["qty"] for ms in matched_sells)
+                tot_pnl = sum(ms["pnl_usd"] for ms in matched_sells)
+                avg_s_price = sum(ms["sell_price"] * ms["qty"] for ms in matched_sells) / tot_q if tot_q > 0 else 0.0
+                s_ids = [ms["sell_order_id"] for ms in matched_sells]
+                order["trade_status"] = "SOLD"
+                order["sell_price"] = round(avg_s_price, 4)
+                order["pnl_usd"] = round(tot_pnl, 4)
+                order["pnl_pct"] = round(((avg_s_price - b_price) / b_price) * 100.0, 2) if b_price > 0 else 0.0
+                order["linked_order_ids"] = s_ids
+                order["linked_text"] = f"🔗 Vendida en Venta #{s_ids[0]} (a ${avg_s_price:.2f})"
+            else:
+                cur_p = float((live_prices or {}).get(sym, 0.0) or 0.0)
+                if cur_p > 0 and b_price > 0:
+                    u_pnl = (cur_p - b_price) * qty
+                    u_pct = ((cur_p - b_price) / b_price) * 100.0
+                    order["sell_price"] = round(cur_p, 4)
+                    order["pnl_usd"] = round(u_pnl, 4)
+                    order["pnl_pct"] = round(u_pct, 2)
+                    order["linked_text"] = f"🟢 En cartera (Actual: ${cur_p:.2f})"
+                else:
+                    order["linked_text"] = "🟢 En cartera activa"
+
+    chronological.sort(key=lambda x: str(x.get("timestamp", "")), reverse=True)
+    closed_cycles.sort(key=lambda x: str(x.get("timestamp", "")), reverse=True)
+    return chronological, closed_cycles
+
+
 @router.get("")
 async def get_dashboard_data(username: str = Depends(verify_session)) -> Dict[str, Any]:
     """Get consolidated dashboard data including performance, regime, and recent trades."""
@@ -149,14 +447,35 @@ async def get_dashboard_data(username: str = Depends(verify_session)) -> Dict[st
             logger.debug(f"DASHBOARD | Could not get strategy for {symbol}: {e}")
             symbol_strategies[symbol] = settings.TRADING_STRATEGY
 
-    # 4. SQLite query to get the last 10 orders
+    # 4. SQLite query to get the last orders (merging scalper DB in production)
     recent_trades: List[Dict[str, Any]] = []
+    closed_cycles: List[Dict[str, Any]] = []
     try:
         cursor = await db.execute(
             "SELECT order_id, symbol, side, price, quantity, rsi, timestamp FROM orders ORDER BY timestamp DESC LIMIT 10"
         )
         rows = await cursor.fetchall()
         recent_trades = [dict(row) for row in rows]
+        api_key = getattr(settings, "BINANCE_API_KEY", None)
+        if isinstance(api_key, str) and api_key and "mock" not in api_key.lower():
+            import os
+            import sqlite3
+            seen_ids = {t.get("order_id") for t in recent_trades}
+            for extra_db in ("data/vinbot_scalper.db", "data/vinbot_classic.db"):
+                if os.path.exists(extra_db):
+                    try:
+                        with sqlite3.connect(extra_db) as sconn:
+                            sconn.row_factory = sqlite3.Row
+                            erows = sconn.execute(
+                                "SELECT order_id, symbol, side, price, quantity, rsi, timestamp FROM orders ORDER BY timestamp DESC LIMIT 100"
+                            ).fetchall()
+                            for er in erows:
+                                d_er = dict(er)
+                                if d_er.get("order_id") not in seen_ids:
+                                    recent_trades.append(d_er)
+                                    seen_ids.add(d_er.get("order_id"))
+                    except Exception:
+                        pass
     except Exception as e:
         logger.error(f"DASHBOARD | Error fetching recent trades from database: {e}")
 
@@ -221,12 +540,47 @@ async def get_dashboard_data(username: str = Depends(verify_session)) -> Dict[st
     except Exception as e:
         logger.error(f"DASHBOARD | Error compiling ML telemetry: {e}")
 
-    all_recent_decisions.sort(key=lambda d: d.get("time", ""), reverse=True)
+    verified_decs = [d for d in all_recent_decisions if d.get("verified")]
+    pending_decs = [d for d in all_recent_decisions if not d.get("verified")]
+    verified_decs.sort(key=lambda d: d.get("time", ""), reverse=True)
+    pending_decs.sort(key=lambda d: (d.get("bars_elapsed", 0), d.get("time", "")), reverse=True)
+    # Keep at most 1 pending decision per symbol (closest to completion) + up to 10 verified decisions
+    seen_pending_syms = set()
+    top_pending = []
+    for d in pending_decs:
+        s_name = d.get("symbol", "")
+        if s_name not in seen_pending_syms:
+            top_pending.append(d)
+            seen_pending_syms.add(s_name)
+    combined_decisions = verified_decs[:10] + top_pending[:4]
     cv_vals = [v.get("cv_accuracy", 0.0) for v in ml_symbols_data.values() if v.get("cv_accuracy", 0.0) > 0]
     live_eval_total = sum(v.get("live_evaluated", 0) for v in ml_symbols_data.values())
     live_corr_total = sum(v.get("live_correct", 0) for v in ml_symbols_data.values())
     vetoes_total = sum(v.get("vetoes_total", 0) for v in ml_symbols_data.values())
     vetoes_saved = sum(v.get("vetoes_saved", 0) for v in ml_symbols_data.values())
+
+    # 5.5 Incorporate 4th Brain (Kronos Foundation Model) telemetry if available
+    try:
+        from app.services.ml.kronos_client import kronos_client
+        for sym in ml_symbols_data.keys():
+            k_data = kronos_client.cached_predictions.get(sym)
+            if not k_data:
+                k_path = os.path.join(model_dir, f"{sym}_kronos.json")
+                if os.path.exists(k_path):
+                    try:
+                        with open(k_path, "r", encoding="utf-8") as f:
+                            k_data = json.load(f)
+                    except Exception:
+                        k_data = None
+            if k_data:
+                ml_symbols_data[sym]["kronos"] = {
+                    "direction": k_data.get("direction", "NEUTRAL"),
+                    "confidence": k_data.get("confidence", 0.5),
+                    "expected_pct": k_data.get("expected_pct", 0.0),
+                    "inference_time_ms": k_data.get("inference_time_ms", 0.0),
+                }
+    except Exception as e:
+        logger.debug(f"DASHBOARD | Error attaching Kronos telemetry: {e}")
 
     ml_insights = {
         "enabled": settings.ML_ENABLED,
@@ -238,8 +592,23 @@ async def get_dashboard_data(username: str = Depends(verify_session)) -> Dict[st
         "vetoes_total": vetoes_total,
         "vetoes_saved": vetoes_saved,
         "symbols": ml_symbols_data,
-        "recent_decisions": all_recent_decisions[:12],
+        "recent_decisions": combined_decisions,
     }
+
+    # 6. Fetch real-time Binance Spot Wallet & Asset Holdings
+    wallet = await _fetch_wallet_portfolio()
+
+    # 7. Link BUY and SELL orders (FIFO per symbol) to compute real PnL per trade
+    live_prices: Dict[str, float] = {}
+    for asset_info in wallet.get("assets", []):
+        a_sym = asset_info.get("asset", "")
+        if a_sym and a_sym not in ("USDC", "USDT"):
+            live_prices[f"{a_sym}USDC"] = float(asset_info.get("price_usd", 0.0) or 0.0)
+            live_prices[f"{a_sym}USDT"] = float(asset_info.get("price_usd", 0.0) or 0.0)
+
+    if recent_trades:
+        recent_trades, closed_cycles = _link_orders_buy_sell(recent_trades, live_prices)
+        recent_trades = recent_trades[:20]
 
     data = {
         "bot_running": bot_running,
@@ -251,7 +620,9 @@ async def get_dashboard_data(username: str = Depends(verify_session)) -> Dict[st
         "symbol_regimes": symbol_regimes,
         "symbol_strategies": symbol_strategies,
         "recent_trades": recent_trades,
+        "closed_cycles": closed_cycles,
         "ml_insights": ml_insights,
+        "wallet": wallet,
         "timestamp": current_time
     }
 
@@ -284,7 +655,34 @@ async def get_trades(date: Optional[str] = None, username: str = Depends(verify_
     try:
         cursor = await db.execute(query, params)
         rows = await cursor.fetchall()
-        return [dict(row) for row in rows]
+        trades_list = [dict(row) for row in rows]
+        api_key = getattr(settings, "BINANCE_API_KEY", None)
+        if isinstance(api_key, str) and api_key and "mock" not in api_key.lower():
+            import os
+            import sqlite3
+            all_orders_for_linking: List[Dict[str, Any]] = []
+            seen_ids = set()
+            for extra_db in ("data/vinbot_scalper.db", "data/vinbot_classic.db"):
+                if os.path.exists(extra_db):
+                    try:
+                        with sqlite3.connect(extra_db) as sconn:
+                            sconn.row_factory = sqlite3.Row
+                            erows = sconn.execute(
+                                "SELECT order_id, symbol, side, price, quantity, rsi, timestamp FROM orders ORDER BY timestamp ASC"
+                            ).fetchall()
+                            for er in erows:
+                                d_er = dict(er)
+                                if d_er.get("order_id") not in seen_ids:
+                                    all_orders_for_linking.append(d_er)
+                                    seen_ids.add(d_er.get("order_id"))
+                    except Exception:
+                        pass
+            if all_orders_for_linking:
+                linked, _ = _link_orders_buy_sell(all_orders_for_linking)
+                if date:
+                    linked = [t for t in linked if str(t.get("timestamp", "")).startswith(date)]
+                return linked
+        return trades_list
     except Exception as e:
         logger.error(f"DASHBOARD | Error retrieving trades by date ({date}): {e}")
         raise HTTPException(

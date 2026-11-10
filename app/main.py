@@ -33,6 +33,28 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def _extract_order_fill_price(order: Dict[str, Any], fallback_price: float) -> float:
+    """Extract weighted-average fill price from Binance Market/Limit order response."""
+    raw_p = order.get("price")
+    if raw_p is not None:
+        try:
+            p_val = float(raw_p)
+            if p_val > 0:
+                return p_val
+        except (ValueError, TypeError):
+            pass
+    fills = order.get("fills") or []
+    if fills:
+        try:
+            tot_cost = sum(float(f.get("price", 0)) * float(f.get("qty", 0)) for f in fills)
+            tot_qty = sum(float(f.get("qty", 0)) for f in fills)
+            if tot_qty > 0:
+                return tot_cost / tot_qty
+        except (ValueError, TypeError):
+            pass
+    return float(fallback_price)
+
 async def dummy_strategy_callback(data: Dict[str, Any]):
     """Main trading loop logic for processing incoming market data."""
     symbol = data.get("s", "")
@@ -77,7 +99,7 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
 
             # 1.2 Place the SELL order (suppress duplicate raw order notification)
             order = await trading_engine.place_market_order(symbol, "SELL", quantity=quantity, rsi=None, notify=False)
-            exec_price = float(order.get("price", 0) or order.get("fills", [{}])[0].get("price", 0) or close_price)
+            exec_price = _extract_order_fill_price(order, close_price)
             exec_qty = float(order.get("executedQty", quantity))
             realized_pnl_units = (exec_price - entry_p) * exec_qty if entry_p > 0 else 0.0
 
@@ -155,6 +177,28 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
                         )
                 except Exception as e:
                     logger.debug(f"ML live telemetry error for {symbol}: {e}")
+
+                # 4th Brain: Async background poll to Kronos-mini foundation model
+                try:
+                    from app.services.ml.kronos_client import kronos_client
+                    formatted_klines = []
+                    for raw_k in symbol_data.klines:
+                        if isinstance(raw_k, dict):
+                            c_p = float(raw_k.get("c", 0.0))
+                            formatted_klines.append({
+                                "timestamp": int(raw_k.get("t", 0) or raw_k.get("T", 0) or 0),
+                                "open": float(raw_k.get("o", 0.0) or c_p),
+                                "high": float(raw_k.get("h", 0.0) or c_p),
+                                "low": float(raw_k.get("l", 0.0) or c_p),
+                                "close": c_p,
+                                "volume": float(raw_k.get("v", 0.0)),
+                                "amount": float(raw_k.get("q", 0.0)) if "q" in raw_k else None,
+                            })
+                    if len(formatted_klines) >= 30:
+                        import asyncio
+                        asyncio.create_task(kronos_client.get_forecast(symbol, formatted_klines, pred_len=10))
+                except Exception as e:
+                    logger.debug(f"Kronos background query dispatch error for {symbol}: {e}")
             
             # Analyze strategy signal
             # Note: signal handles trailing stop and volume confirmation internally via proxy
@@ -203,8 +247,8 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
                             f"(Risk: {settings.RISK_PER_TRADE_PCT}%, Mult: {pos_mult:.2f}x)"
                         )
                     else:
-                        # Fixed order value approach scaled by conviction multiplier
-                        target_usdt = settings.FIXED_ORDER_VALUE_USDT * pos_mult
+                        # Fixed order value approach scaled by conviction multiplier (floor at $11.0 for Binance MIN_NOTIONAL)
+                        target_usdt = max(11.0, settings.FIXED_ORDER_VALUE_USDT * pos_mult)
                         raw_qty = target_usdt / close_price
                         
                         # Format for Binance LOT_SIZE
@@ -240,7 +284,7 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
                     # Update local states
                     if side == "BUY":
                         # Binance filled price
-                        entry_p = float(order.get("price", 0) or order.get("fills", [{}])[0].get("price", 0))
+                        entry_p = _extract_order_fill_price(order, close_price)
                         exec_qty = float(order.get("executedQty", quantity))
                         await risk_manager.set_entry_price(symbol, entry_p, exec_qty)
 
@@ -250,7 +294,7 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
 
                         await rsi_strategy.update_position(symbol, True)
                     else:
-                        exec_price = float(order.get("price", 0) or order.get("fills", [{}])[0].get("price", 0) or close_price)
+                        exec_price = _extract_order_fill_price(order, close_price)
                         exec_qty = float(order.get("executedQty", quantity))
                         realized_pnl_units = (exec_price - entry_p_before) * exec_qty if entry_p_before > 0 else 0.0
                         pnl_pct = ((exec_price - entry_p_before) / entry_p_before) * 100.0 if entry_p_before > 0 else 0.0
@@ -427,10 +471,42 @@ async def run_trading_bot():
         historical_klines = await market_service.get_historical_klines(symbol, "1m", limit=100)
         symbol_data = get_symbol_data(symbol)
         for k in historical_klines:
-            # Kline arrays in Binance are [open_time, o, h, l, c, v, ...]
-            symbol_data.add_kline({
-                "c": k[4], "h": k[2], "l": k[3], "v": k[5]
-            })
+            # Kline arrays in Binance are [open_time, o, h, l, c, v, close_time, quote_volume, ...]
+            k_dict = {
+                "t": int(k[0]),
+                "o": float(k[1]),
+                "h": float(k[2]),
+                "l": float(k[3]),
+                "c": float(k[4]),
+                "v": float(k[5]),
+                "q": float(k[7]) if len(k) > 7 else 0.0,
+            }
+            symbol_data.add_kline(k_dict)
+            if settings.MULTI_TF_ENABLED:
+                try:
+                    from app.services.multi_timeframe import multi_tf_manager
+                    multi_tf_manager.add_kline(symbol, "1m", k_dict)
+                except Exception:
+                    pass
+
+        if settings.MULTI_TF_ENABLED:
+            try:
+                from app.services.multi_timeframe import multi_tf_manager
+                for higher_tf in ("15m", "1h"):
+                    if higher_tf in multi_tf_manager.timeframes:
+                        htf_klines = await market_service.get_historical_klines(symbol, higher_tf, limit=60)
+                        for hk in htf_klines:
+                            multi_tf_manager.add_kline(
+                                symbol, higher_tf, {"c": hk[4], "h": hk[2], "l": hk[3], "v": hk[5]}
+                            )
+                logger.info(
+                    f"Multi-TF warm-up complete for {symbol}: "
+                    f"15m={multi_tf_manager.get_trend_direction(symbol, '15m').value}, "
+                    f"1h={multi_tf_manager.get_trend_direction(symbol, '1h').value}"
+                )
+            except Exception as e:
+                logger.warning(f"Multi-TF warm-up warning for {symbol}: {e}")
+
         logger.info(f"Warm-up complete for {symbol}. RSI: {symbol_data.get_rsi()}")
         await auto_train_symbol_model(symbol)
         if settings.ML_ENABLED and len(symbol_data.closes) >= 50:

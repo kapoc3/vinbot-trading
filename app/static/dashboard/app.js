@@ -166,8 +166,137 @@ function updateUI(data) {
         });
     }
 
-    // 5. Render Local AI & Microstructure Analytics
+    // 5. Render Wallet & Crypto Holdings
+    renderWalletPortfolio(data.wallet || {});
+
+    // 6. Render Local AI & Microstructure Analytics
     renderMLInsights(data.ml_insights || {});
+
+    // 7. Render Closed Buy-Sell Cycles
+    renderClosedCycles(data.closed_cycles || []);
+}
+
+function renderWalletPortfolio(wallet) {
+    const totalUsdEl = document.getElementById('wallet-total-usd');
+    const breakdownSubEl = document.getElementById('wallet-breakdown-subtext');
+    const goalBadgeEl = document.getElementById('wallet-goal-badge');
+    const summaryLineEl = document.getElementById('wallet-summary-line');
+    const goalPctTextEl = document.getElementById('wallet-goal-pct-text');
+    const goalBarEl = document.getElementById('wallet-goal-bar');
+    const assetsGridEl = document.getElementById('wallet-assets-grid');
+
+    if (!totalUsdEl || !assetsGridEl) return;
+
+    const totalUsd = wallet.total_usd || 0.0;
+    const freeStable = wallet.free_stable_usd || 0.0;
+    const investedCrypto = wallet.invested_crypto_usd || 0.0;
+    const lockedUsd = wallet.locked_usd || 0.0;
+    const goalUsd = wallet.goal_usd || 100.0;
+    const goalPct = wallet.goal_progress_pct || Math.min(100.0, (totalUsd / goalUsd) * 100.0);
+    const assets = wallet.assets || [];
+
+    totalUsdEl.textContent = `$${totalUsd.toFixed(2)}`;
+    breakdownSubEl.textContent = `Libre: $${freeStable.toFixed(2)} USDC | En Cripto: $${investedCrypto.toFixed(2)}`;
+
+    if (goalBadgeEl) {
+        goalBadgeEl.textContent = `Meta $${goalUsd.toFixed(0)} USDC: $${totalUsd.toFixed(2)} (${goalPct.toFixed(1)}%)`;
+    }
+
+    if (summaryLineEl) {
+        const lockedText = lockedUsd > 0.01 ? ` | En órdenes: $${lockedUsd.toFixed(2)}` : '';
+        summaryLineEl.textContent = `Liquidez Libre (Stablecoins): $${freeStable.toFixed(2)} | Activos Cripto: $${investedCrypto.toFixed(2)}${lockedText}`;
+    }
+
+    if (goalPctTextEl) {
+        const remaining = Math.max(0.0, goalUsd - totalUsd);
+        goalPctTextEl.textContent = remaining > 0
+            ? `${goalPct.toFixed(1)}% completado (Faltan $${remaining.toFixed(2)} para $${goalUsd.toFixed(0)})`
+            : `🎉 ¡Meta de $${goalUsd.toFixed(0)} USDC alcanzada!`;
+    }
+
+    if (goalBarEl) {
+        const stablePctOfGoal = Math.min(100, (freeStable / goalUsd) * 100);
+        const cryptoPctOfGoal = Math.min(100 - stablePctOfGoal, (investedCrypto / goalUsd) * 100);
+        goalBarEl.innerHTML = `
+            <div title="Liquidez Stablecoins: $${freeStable.toFixed(2)}" style="width: ${stablePctOfGoal}%; background: #10b981; transition: width 0.5s ease;"></div>
+            <div title="Invertido en Cripto: $${investedCrypto.toFixed(2)}" style="width: ${cryptoPctOfGoal}%; background: #f59e0b; transition: width 0.5s ease;"></div>
+        `;
+    }
+
+    assetsGridEl.innerHTML = '';
+    if (assets.length === 0) {
+        assetsGridEl.innerHTML = '<div class="loading-placeholder">No se encontraron activos con saldo en Binance Spot.</div>';
+        return;
+    }
+
+    const coinIcons = {
+        USDC: '💵',
+        USDT: '💵',
+        BTC: '₿',
+        ETH: '💎',
+        SOL: '🟣',
+        BNB: '🟡'
+    };
+
+    assets.forEach(item => {
+        const icon = coinIcons[item.asset] || '🪙';
+        const isStable = item.is_stable;
+        const inBotPos = item.in_bot_position;
+
+        let badgeClass = 'ranging';
+        let badgeLabel = 'RESERVA SPOT';
+        if (isStable) {
+            badgeClass = 'trending';
+            badgeLabel = 'LIQUIDEZ BASE';
+        } else if (inBotPos) {
+            badgeClass = 'highvolatility';
+            badgeLabel = 'POSICIÓN BOT ACTIVA';
+        }
+
+        const qtyDecimals = isStable ? 2 : (item.total < 0.001 ? 8 : (item.total < 1 ? 6 : 4));
+        const priceDecimals = item.price_usd >= 100 ? 2 : (item.price_usd >= 1 ? 4 : 6);
+
+        let pnlRowHtml = '';
+        if (!isStable && item.entry_price) {
+            const pnlVal = item.unrealized_pnl_pct || 0.0;
+            const pnlColor = pnlVal >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
+            pnlRowHtml = `
+                <div style="display: flex; justify-content: space-between; padding-top: 0.2rem; border-top: 1px solid rgba(255,255,255,0.04);">
+                    <span class="strategy-label">Entrada Bot / PnL:</span>
+                    <span style="font-weight: 700; color: ${pnlColor};">$${item.entry_price.toFixed(priceDecimals)} (${pnlVal >= 0 ? '+' : ''}${pnlVal.toFixed(2)}%)</span>
+                </div>
+            `;
+        }
+
+        const card = document.createElement('div');
+        card.className = 'symbol-card';
+        card.innerHTML = `
+            <div class="symbol-header">
+                <span class="symbol-name">${icon} ${item.asset}</span>
+                <span class="regime-tag ${badgeClass}">${badgeLabel}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; margin: 0.15rem 0;">
+                <span style="font-size: 1.45rem; font-weight: 800; color: var(--text-primary);">$${item.usd_value.toFixed(2)}</span>
+                <span style="font-size: 0.8rem; font-weight: 600; color: var(--accent-blue);">${(item.allocation_pct || 0).toFixed(1)}% del total</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem;">
+                <div style="display: flex; justify-content: space-between;">
+                    <span class="strategy-label">Cantidad Total:</span>
+                    <span style="font-weight: 600; color: #e5e7eb;">${item.total.toFixed(qtyDecimals)} ${item.asset}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                    <span class="strategy-label">Disponible / En Orden:</span>
+                    <span style="color: var(--text-secondary);">${item.free.toFixed(qtyDecimals)} / ${item.locked.toFixed(qtyDecimals)}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                    <span class="strategy-label">Precio Mercado:</span>
+                    <span style="color: var(--text-secondary);">$${item.price_usd.toFixed(priceDecimals)}</span>
+                </div>
+                ${pnlRowHtml}
+            </div>
+        `;
+        assetsGridEl.appendChild(card);
+    });
 }
 
 function renderMLInsights(ml) {
@@ -256,6 +385,13 @@ function renderMLInsights(ml) {
                         <span class="strategy-label">Muestras / Mecha Compra:</span>
                         <span style="color: var(--text-secondary);">${s.n_samples || 0} velas | ${Math.min(100, Math.max(0, (s.buying_pressure_wick > 100 ? s.buying_pressure_wick / 100 : (s.buying_pressure_wick || 50)))).toFixed(0)}%</span>
                     </div>
+                    ${s.kronos ? `
+                    <div style="margin-top: 0.35rem; padding-top: 0.35rem; border-top: 1px dashed rgba(147, 51, 234, 0.4); display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 0.76rem; color: #c084fc; font-weight: 600;">🧠 4to Cerebro (Kronos):</span>
+                        <span style="font-size: 0.76rem; font-weight: 700; color: ${s.kronos.direction === 'BULLISH' ? 'var(--accent-green)' : (s.kronos.direction === 'BEARISH' ? 'var(--accent-red)' : 'var(--accent-yellow)')};">
+                            ${s.kronos.direction} (${s.kronos.expected_pct >= 0 ? '+' : ''}${s.kronos.expected_pct}%)
+                        </span>
+                    </div>` : ''}
                 </div>
             `;
             aiSymbolsGrid.appendChild(card);
@@ -272,12 +408,14 @@ function renderMLInsights(ml) {
             decisions.forEach(d => {
                 const sig = (d.signal || 'HOLD').toUpperCase();
                 const sigBadgeClass = sig === 'BUY' ? 'buy' : (sig === 'SELL' ? 'sell' : 'unknown');
-                let verdictHtml = '<span style="color: var(--accent-yellow); font-weight: 600;">⏳ Evaluando barreras...</span>';
+                const barsElapsed = d.bars_elapsed !== undefined ? d.bars_elapsed : 0;
+                const horizon = d.horizon || 10;
+                let verdictHtml = `<span style="color: var(--accent-yellow); font-weight: 600;">⏳ Evaluando (${barsElapsed}/${horizon}m)...</span>`;
                 if (d.verified) {
                     if (d.is_correct) {
                         verdictHtml = `<span style="color: var(--accent-green); font-weight: 700;">✅ ACERTÓ (${d.actual_outcome})</span>`;
                     } else {
-                        verdictHtml = `<span style="color: var(--accent-red); font-weight: 700;">❌ FALLÓ (${d.actual_outcome})</span>`;
+                        verdictHtml = `<span style="color: var(--accent-red); font-weight: 700;">❌ FALLÓ (Real: ${d.actual_outcome})</span>`;
                     }
                 }
                 const obiVal = d.obi || 0;
@@ -301,6 +439,73 @@ function renderMLInsights(ml) {
     }
 }
 
+function renderClosedCycles(cycles) {
+    const grid = document.getElementById('closed-cycles-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+
+    if (!cycles || cycles.length === 0) {
+        grid.innerHTML = '<div class="loading-placeholder">Aún no hay ventas cerradas que emparejen compras previas.</div>';
+        return;
+    }
+
+    cycles.forEach(c => {
+        const pnlUsd = c.pnl_usd || 0.0;
+        const pnlPct = c.pnl_pct || 0.0;
+        const isWin = pnlUsd >= 0;
+        const pnlColor = isWin ? 'var(--accent-green)' : 'var(--accent-red)';
+        const borderAccent = isWin ? 'rgba(16, 185, 129, 0.35)' : 'rgba(239, 68, 68, 0.35)';
+
+        let dateStr = c.timestamp || '';
+        if (c.timestamp) {
+            const isoStr = c.timestamp.includes(' ') ? c.timestamp.replace(' ', 'T') : c.timestamp;
+            const d = new Date(isoStr + 'Z');
+            if (!isNaN(d.getTime())) dateStr = d.toLocaleString();
+        }
+
+        const detailsList = (c.matched_details || []).map(m =>
+            `<div style="display: flex; justify-content: space-between; font-size: 0.76rem; color: var(--text-secondary);">
+                <span>↳ Compra <b>#${m.buy_order_id}</b> (${m.qty} a $${parseFloat(m.buy_price).toFixed(2)})</span>
+                <span style="color: ${m.pnl_usd >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'}; font-weight: 600;">${m.pnl_usd >= 0 ? '+' : ''}$${parseFloat(m.pnl_usd).toFixed(4)}</span>
+            </div>`
+        ).join('');
+
+        const card = document.createElement('div');
+        card.className = 'symbol-card';
+        card.style.border = `1px solid ${borderAccent}`;
+        card.innerHTML = `
+            <div class="symbol-header" style="margin-bottom: 0.5rem;">
+                <div>
+                    <span class="symbol-name" style="font-size: 1rem;">${c.symbol}</span>
+                    <span style="font-size: 0.75rem; color: var(--text-secondary); margin-left: 0.4rem;">Venta #${c.sell_order_id}</span>
+                </div>
+                <span class="side-badge ${isWin ? 'buy' : 'sell'}" style="font-size: 0.8rem;">
+                    ${isWin ? '+' : ''}$${pnlUsd.toFixed(4)} USDC (${isWin ? '+' : ''}${pnlPct.toFixed(2)}%)
+                </span>
+            </div>
+            <div style="font-size: 0.82rem; display: flex; flex-direction: column; gap: 0.35rem;">
+                <div style="display: flex; justify-content: space-between;">
+                    <span class="strategy-label">Fecha Venta:</span>
+                    <span style="color: #e5e7eb;">${dateStr}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                    <span class="strategy-label">Precio Compra Prom. → Venta:</span>
+                    <span style="font-weight: 700; color: #f3f4f6;">$${parseFloat(c.avg_buy_price).toFixed(2)} → $${parseFloat(c.sell_price).toFixed(2)}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                    <span class="strategy-label">Capital Invertido → Recuperado:</span>
+                    <span style="font-weight: 600; color: ${pnlColor};">$${parseFloat(c.buy_cost_usd).toFixed(2)} → $${parseFloat(c.sell_value_usd).toFixed(2)} USDC</span>
+                </div>
+                <div style="margin-top: 0.35rem; padding-top: 0.35rem; border-top: 1px solid rgba(255,255,255,0.06);">
+                    <div style="font-size: 0.75rem; font-weight: 600; color: #9ca3af; margin-bottom: 0.2rem;">Compras Asociadas (${(c.matched_details || []).length}):</div>
+                    ${detailsList}
+                </div>
+            </div>
+        `;
+        grid.appendChild(card);
+    });
+}
+
 // Render Trades List inside the Table
 function renderTrades(trades) {
     tradesTbody.innerHTML = '';
@@ -322,17 +527,68 @@ function renderTrades(trades) {
                 dateStr = isNaN(d.getTime()) ? trade.timestamp : d.toLocaleString();
             }
 
-            const rsiVal = trade.rsi !== null && trade.rsi !== undefined ? parseFloat(trade.rsi).toFixed(2) : '-';
             const side = (trade.side || 'BUY').toUpperCase();
-            
+            const price = parseFloat(trade.price || 0);
+            const qty = parseFloat(trade.quantity || 0);
+            const valUsd = trade.order_value_usd !== undefined ? parseFloat(trade.order_value_usd) : (price * qty);
+
+            // Linked Buy <-> Sell text
+            const linkedHtml = trade.linked_text
+                ? `<div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.2rem; font-weight: 600;">${trade.linked_text}</div>`
+                : '';
+
+            // Buy -> Sell price comparison cell
+            let priceComparisonHtml = `$${price.toFixed(2)}`;
+            if (side === 'SELL' && trade.buy_price) {
+                priceComparisonHtml = `
+                    <div><span style="color: var(--text-secondary); font-size: 0.78rem;">Compra Prom:</span> $${parseFloat(trade.buy_price).toFixed(2)}</div>
+                    <div style="font-weight: 700; color: #f3f4f6;"><span style="color: var(--text-secondary); font-size: 0.78rem;">Venta Real:</span> $${price.toFixed(2)}</div>
+                `;
+            } else if (side === 'BUY' && trade.sell_price) {
+                const sLabel = trade.trade_status === 'SOLD' ? 'Vendida a:' : 'Actual:';
+                priceComparisonHtml = `
+                    <div style="font-weight: 700; color: #f3f4f6;"><span style="color: var(--text-secondary); font-size: 0.78rem;">Compra:</span> $${price.toFixed(2)}</div>
+                    <div><span style="color: var(--text-secondary); font-size: 0.78rem;">${sLabel}</span> $${parseFloat(trade.sell_price).toFixed(2)}</div>
+                `;
+            }
+
+            // Real PnL cell
+            let pnlHtml = '<span style="color: var(--text-secondary);">-</span>';
+            if (trade.pnl_usd !== null && trade.pnl_usd !== undefined) {
+                const pnlUsd = parseFloat(trade.pnl_usd);
+                const pnlPct = parseFloat(trade.pnl_pct || 0);
+                const isPos = pnlUsd >= 0;
+                const color = isPos ? 'var(--accent-green)' : 'var(--accent-red)';
+                let statusTag = '';
+                if (side === 'SELL') {
+                    statusTag = '<div style="font-size: 0.72rem; color: var(--text-secondary);">Ganancia Real Cierre</div>';
+                } else if (trade.trade_status === 'SOLD') {
+                    statusTag = `<div style="font-size: 0.72rem; color: var(--text-secondary);">Cerrada en #${(trade.linked_order_ids || [])[0] || ''}</div>`;
+                } else {
+                    statusTag = '<div style="font-size: 0.72rem; color: #60a5fa;">PnL Flotante (Abierta)</div>';
+                }
+                pnlHtml = `
+                    <div style="font-weight: 700; color: ${color};">
+                        ${isPos ? '+' : ''}$${pnlUsd.toFixed(4)} USDC (${isPos ? '+' : ''}${pnlPct.toFixed(2)}%)
+                    </div>
+                    ${statusTag}
+                `;
+            }
+
             row.innerHTML = `
                 <td>${dateStr}</td>
-                <td>${trade.order_id}</td>
+                <td>
+                    <div style="font-weight: 700;">#${trade.order_id}</div>
+                    ${linkedHtml}
+                </td>
                 <td style="font-weight: 600;">${trade.symbol}</td>
                 <td><span class="side-badge ${side.toLowerCase()}">${side}</span></td>
-                <td>${parseFloat(trade.price).toFixed(4)}</td>
-                <td>${parseFloat(trade.quantity).toFixed(6)}</td>
-                <td style="font-weight: 600;">${rsiVal}</td>
+                <td>${priceComparisonHtml}</td>
+                <td>
+                    <div style="font-weight: 600;">${qty.toFixed(5)}</div>
+                    <div style="font-size: 0.76rem; color: var(--text-secondary);">$${valUsd.toFixed(2)} USDC</div>
+                </td>
+                <td>${pnlHtml}</td>
             `;
             tradesTbody.appendChild(row);
         });

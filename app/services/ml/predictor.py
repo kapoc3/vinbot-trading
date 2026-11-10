@@ -214,10 +214,16 @@ class MLPredictor:
                         dec["verified"] = True
                         dec["actual_outcome"] = resolved_outcome
                         dec["is_correct"] = is_correct
+                        dec["bars_elapsed"] = item["bars_elapsed"]
                         break
             else:
+                for dec in stats["recent_decisions"]:
+                    if dec.get("id") == item["id"]:
+                        dec["bars_elapsed"] = item["bars_elapsed"]
+                        dec["horizon"] = item["horizon"]
+                        break
                 still_pending.append(item)
-        self.pending_verifications[symbol] = still_pending[-40:]
+        self.pending_verifications[symbol] = still_pending[-60:]
 
         # 2. Run live prediction for current candle
         res = self.predict_with_proba(symbol, features)
@@ -233,11 +239,12 @@ class MLPredictor:
         if vetoed:
             stats["vetoes_total"] += 1
 
-        tp_pct = min(settings.TAKE_PROFIT_PCT, 0.75) / 100.0
-        sl_pct = min(settings.STOP_LOSS_PCT, 0.55) / 100.0
-        horizon = 15
+        tp_pct = min(settings.TAKE_PROFIT_PCT, 0.50) / 100.0
+        sl_pct = min(settings.STOP_LOSS_PCT, 0.40) / 100.0
+        horizon = 10
         now_iso = datetime.now(timezone.utc).strftime("%H:%M:%S")
-        pred_id = f"{symbol}_{int(datetime.now(timezone.utc).timestamp())}_{ len(self.pending_verifications[symbol]) }"
+        self._seq_counter = getattr(self, "_seq_counter", 0) + 1
+        pred_id = f"{symbol}_{int(datetime.now(timezone.utc).timestamp() * 1000)}_{self._seq_counter}"
 
         self.pending_verifications[symbol].append(
             {
@@ -267,9 +274,16 @@ class MLPredictor:
             "verified": False,
             "actual_outcome": "PENDIENTE",
             "is_correct": None,
+            "bars_elapsed": 0,
+            "horizon": horizon,
         }
         stats["recent_decisions"].insert(0, decision_entry)
-        stats["recent_decisions"] = stats["recent_decisions"][:15]
+        stats["recent_decisions"] = stats["recent_decisions"][:60]
+
+        # Include newest 2 live pending decisions + up to 8 most recent verified decisions
+        pending_decs = [d for d in stats["recent_decisions"] if not d.get("verified")][:2]
+        verified_decs = [d for d in stats["recent_decisions"] if d.get("verified")][:8]
+        display_decisions = pending_decs + verified_decs
 
         snapshot = {
             "symbol": symbol,
@@ -293,7 +307,7 @@ class MLPredictor:
             "buying_pressure_wick": round(float(features.get("buying_pressure_wick", 50.0)), 1),
             "volume_zscore": round(float(features.get("volume_zscore", 0.0)), 2),
             "updated_at": now_iso,
-            "recent_decisions": stats["recent_decisions"][:8],
+            "recent_decisions": display_decisions,
         }
         stats["snapshot"] = snapshot
 

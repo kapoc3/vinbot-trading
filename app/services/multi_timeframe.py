@@ -53,6 +53,8 @@ class MultiTimeframeManager:
         # Dictionary de SymbolData por timeframe
         # {symbol: {timeframe: SymbolData}}
         self.symbol_data: Dict[str, Dict[str, SymbolData]] = {}
+        self._1m_counters: Dict[str, int] = {}
+        self._1m_buffer: Dict[str, List[Dict[str, float]]] = {}
 
         # Track symbols being monitored
         self.monitored_symbols: set = set()
@@ -81,25 +83,41 @@ class MultiTimeframeManager:
             logger.info(f"Unregistered {symbol} from multi-TF analysis")
 
     def add_kline(self, symbol: str, timeframe: str, kline: Dict[str, Any]):
-        """Añadir un kline a un timeframe específico."""
+        """Añadir un kline a un timeframe específico (con agregación automática de 1m a 15m/1h)."""
         if symbol not in self.symbol_data or timeframe not in self.symbol_data[symbol]:
             return
 
         self.symbol_data[symbol][timeframe].add_kline(kline)
 
-        # Enforce buffer limit
-        tf_data = self.symbol_data[symbol][timeframe]
-        if len(tf_data.closes) > self.max_candles:
-            # Trim oldest data
-            tf_data.closes = tf_data.closes[-self.max_candles:]
-            tf_data.highs = tf_data.highs[-self.max_candles:]
-            tf_data.lows = tf_data.lows[-self.max_candles:]
-            tf_data.volumes = tf_data.volumes[-self.max_candles:]
-            if hasattr(tf_data, 'klines'):
-                tf_data.klines = tf_data.klines[-self.max_candles:]
-            # Reinitialize RSIs to match new length
-            if hasattr(tf_data, 'rsis'):
-                tf_data.rsis = []
+        # Automatically roll up 1m closed candles into 15m and 1h buffers
+        if timeframe == "1m":
+            c = float(kline.get("c", 0))
+            h = float(kline.get("h", c))
+            l = float(kline.get("l", c))
+            v = float(kline.get("v", 0))
+            buf = self._1m_buffer.setdefault(symbol, [])
+            buf.append({"c": c, "h": h, "l": l, "v": v})
+            if len(buf) > 60:
+                buf.pop(0)
+            count = self._1m_counters.get(symbol, 0) + 1
+            self._1m_counters[symbol] = count
+
+            if count % 15 == 0 and "15m" in self.symbol_data[symbol] and len(buf) >= 15:
+                w15 = buf[-15:]
+                self.symbol_data[symbol]["15m"].add_kline({
+                    "c": w15[-1]["c"],
+                    "h": max(x["h"] for x in w15),
+                    "l": min(x["l"] for x in w15),
+                    "v": sum(x["v"] for x in w15),
+                })
+            if count % 60 == 0 and "1h" in self.symbol_data[symbol] and len(buf) >= 60:
+                w60 = buf[-60:]
+                self.symbol_data[symbol]["1h"].add_kline({
+                    "c": w60[-1]["c"],
+                    "h": max(x["h"] for x in w60),
+                    "l": min(x["l"] for x in w60),
+                    "v": sum(x["v"] for x in w60),
+                })
 
     def get_symbol_data(self, symbol: str, timeframe: str) -> Optional[SymbolData]:
         """Obtener datos de un símbolo en un timeframe específico."""
@@ -144,9 +162,9 @@ class MultiTimeframeManager:
         # Calculate distance
         distance_pct = ((current_price - ema_20) / ema_20) * 100
 
-        if distance_pct > 0.5:
+        if distance_pct > 0.12:
             return TrendDirection.UP
-        elif distance_pct < -0.5:
+        elif distance_pct < -0.12:
             return TrendDirection.DOWN
         else:
             return TrendDirection.RANGING
@@ -226,35 +244,77 @@ class MultiTimeframeManager:
 
         # Evaluate confirmation
         if signal_type == "BUY":
-            # BUY confirmado si EMA superior está por encima del precio
             confirm_1h = trend_1h == TrendDirection.UP
             confirm_15m = trend_15m == TrendDirection.UP
+            not_bearish_1h = trend_1h != TrendDirection.DOWN
+            not_bearish_15m = trend_15m != TrendDirection.DOWN
         else:  # SELL
             confirm_1h = trend_1h == TrendDirection.DOWN
             confirm_15m = trend_15m == TrendDirection.DOWN
+            not_bearish_1h = False
+            not_bearish_15m = False
 
-        # Determine confluence level
+        # SELL signals close existing Spot positions and should never be blocked by higher-TF trend
+        if signal_type == "SELL":
+            return ConfirmationResult(
+                confirmed=True,
+                confluence_level=ConfluenceLevel.ALTA,
+                position_multiplier=1.0,
+                reason=f"ALTA: Salida SELL permitida ({trend_15m.value}/{trend_1h.value})",
+                ema_1h_direction=ema_1h,
+                ema_15m_direction=ema_15m,
+                ema_1m_direction=ema_1m,
+            )
+
+        # Determine confluence level for BUY
+        data_1m = self.symbol_data.get(symbol, {}).get("1m")
+        rsi_1m = data_1m.get_rsi() if data_1m else None
+
         if confirm_1h and confirm_15m:
             level = ConfluenceLevel.ALTA
             multiplier = 1.0
             reason = f"ALTA: EMA 1h y 15m confirman {signal_type}"
-        elif confirm_15m:
+        elif confirm_15m or (confirm_1h and not_bearish_15m):
             level = ConfluenceLevel.MEDIA
-            multiplier = 0.5
-            reason = f"MEDIA: Solo EMA 15m confirma {signal_TYPE}"
+            multiplier = 0.85
+            reason = f"MEDIA: Timeframe superior confirma {signal_type} (15m={trend_15m.value}, 1h={trend_1h.value})"
+        elif not_bearish_1h and not_bearish_15m:
+            # Lateral / Ranging market on 15m & 1h: allow mean-reversion BUY with cautious sizing
+            level = ConfluenceLevel.MEDIA
+            multiplier = 0.8
+            reason = f"MEDIA: Mercado en rango (15m={trend_15m.value}, 1h={trend_1h.value}) permite entrada"
+        elif not_bearish_15m and (rsi_1m is None or rsi_1m <= 50.0):
+            # 15m has stabilized in RANGING even if 1h is still recovering from DOWN
+            level = ConfluenceLevel.MEDIA
+            multiplier = 0.75
+            reason = f"MEDIA: 15m estabilizado en rango ({trend_15m.value}/{trend_1h.value}) permite rebote"
         else:
-            # Check if we allow low confluence
+            # Both 15m and 1h are bearish (or 15m is DOWN): only allow on deep oversold bounce
+            if rsi_1m is not None and rsi_1m < 28.0:
+                level = ConfluenceLevel.MEDIA
+                multiplier = 0.75
+                reason = f"MEDIA: Sobreventa extrema (RSI={rsi_1m:.1f}) habilita rebote"
+                return ConfirmationResult(
+                    confirmed=True,
+                    confluence_level=level,
+                    position_multiplier=multiplier,
+                    reason=reason,
+                    ema_1h_direction=ema_1h,
+                    ema_15m_direction=ema_15m,
+                    ema_1m_direction=ema_1m
+                )
+
             if settings.ALLOW_LOW_CONFLUENCE_TRADES:
                 level = ConfluenceLevel.BAJA
-                multiplier = 0.25
-                reason = f"BAJA: Sin confirmación - usando 25% (permitido)"
+                multiplier = 0.65
+                reason = f"BAJA: Sin confirmación - usando 65% (permitido)"
             else:
                 level = ConfluenceLevel.BAJA
                 multiplier = 0.0
-                reason = f"BAJA: Sin confirmación - 信号 bloqueada"
+                reason = f"BAJA: Tendencia macro bajista ({trend_15m.value}/{trend_1h.value}) - señal bloqueada"
 
             return ConfirmationResult(
-                confirmed=False,
+                confirmed=settings.ALLOW_LOW_CONFLUENCE_TRADES,
                 confluence_level=level,
                 position_multiplier=multiplier,
                 reason=reason,

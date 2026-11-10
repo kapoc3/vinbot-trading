@@ -10,8 +10,11 @@ class PersistenceService:
     
     async def set_state(self, key: str, value: Any):
         """Save a key-value state to bot_state table."""
-        # Serialize to JSON string to handle arbitrary types
-        json_val = json.dumps(value)
+        # Serialize to JSON string to handle arbitrary types (including datetime)
+        json_val = json.dumps(
+            value,
+            default=lambda o: o.isoformat() if hasattr(o, "isoformat") else str(o),
+        )
         await db.connection.execute(
             "INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)",
             (key, json_val)

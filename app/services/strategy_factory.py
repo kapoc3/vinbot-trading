@@ -155,24 +155,99 @@ class DynamicStrategyProxy:
 
         # 2. Normal Strategy Analysis
         signal = strategy_manager.get_strategy(symbol).analyze(symbol)
+        ai_triggered = False
 
-        # 3. Volume Confirmation Veto (Only for BUY signals)
+        # 2.5 Proactive Local AI Trigger (High-Conviction Autonomous BUY / Profit-Protection SELL)
+        if signal is None and getattr(settings, "ML_ENABLED", False):
+            try:
+                from app.services.ml.predictor import ml_predictor, get_prediction_with_confidence
+                from app.services.ml.feature_engineering import extract_features
+                from app.services.risk_manager import risk_manager
+
+                symbol_data = get_symbol_data(symbol)
+                if symbol_data and symbol_data.closes and len(symbol_data.closes) >= 50:
+                    features = extract_features(symbol_data)
+                    if features:
+                        ml_res = get_prediction_with_confidence(symbol, features)
+                        if ml_res and isinstance(features, dict) and "_ml_buy_prob" in features:
+                            ml_sig, ml_conf = ml_res
+                            buy_prob = float(features.get("_ml_buy_prob", 0.0))
+                            sell_prob = float(features.get("_ml_sell_prob", 0.0))
+                            snap = ml_predictor.live_stats.get(symbol, {}).get("snapshot") or {}
+                            obi = float(snap.get("obi", 0.0))
+                            live_eval = int(snap.get("live_evaluated", 0))
+                            live_acc = float(snap.get("live_accuracy", 0.0))
+                            cur_rsi = symbol_data.get_rsi() or 50.0
+                            cur_price = symbol_data.closes[-1]
+                            in_pos = strategy_manager.get_strategy(symbol).positions.get(symbol, False)
+
+                            if not in_pos:
+                                # Autonomous AI BUY when Triple-Barrier P(TP) strongly dominates P(SL) and OBI/RSI support entry
+                                accuracy_ok = (live_eval < 5) or (live_acc >= 55.0)
+                                if (
+                                    ml_sig == "BUY"
+                                    and buy_prob >= 0.50
+                                    and buy_prob >= sell_prob * 1.8
+                                    and accuracy_ok
+                                    and obi >= -0.12
+                                    and cur_rsi <= 56.0
+                                ):
+                                    logger.info(
+                                        f"AI TRIGGER | {symbol} Autonomous AI BUY initiated "
+                                        f"(P(TP)={buy_prob*100:.1f}%, P(SL)={sell_prob*100:.1f}%, OBI={obi:+.2f}, RSI={cur_rsi:.1f}, LiveAcc={live_acc:.1f}%)"
+                                    )
+                                    signal = "BUY"
+                                    ai_triggered = True
+                            else:
+                                # Autonomous AI Profit-Protection SELL when position is in net profit and AI detects reversal
+                                entry_p = risk_manager.entry_prices.get(symbol, 0.0)
+                                if (
+                                    ml_sig == "SELL"
+                                    and sell_prob >= 0.48
+                                    and sell_prob >= buy_prob * 1.6
+                                    and entry_p > 0
+                                    and cur_price >= entry_p * 1.0035
+                                    and cur_rsi >= 54.0
+                                ):
+                                    logger.info(
+                                        f"AI TRIGGER | {symbol} Autonomous AI Profit-Lock SELL initiated at {cur_price:.4f} "
+                                        f"(Entry={entry_p:.4f}, P(SL)={sell_prob*100:.1f}%, RSI={cur_rsi:.1f})"
+                                    )
+                                    signal = "SELL"
+                                    ai_triggered = True
+            except Exception as e:
+                logger.warning(f"AI TRIGGER | Error evaluating proactive AI signal for {symbol}: {e}")
+
+        # 3. Volume Confirmation Veto (Only for BUY signals, strategy-aware)
         if signal == "BUY" and settings.ENABLE_VOLUME_CONFIRMATION:
             symbol_data = get_symbol_data(symbol)
             vwap = symbol_data.get_vwap(settings.VWAP_PERIOD)
             obv = symbol_data.get_obv()
             obv_sma = symbol_data.get_obv_sma(20)
             current_price = symbol_data.closes[-1] if symbol_data.closes else 0.0
+            active_strat_name = strategy_manager.get_strategy(symbol).__class__.__name__
 
-            # Price must be at or above VWAP
-            if vwap is not None and current_price < vwap:
-                logger.info(f"VETO | {symbol} BUY vetoed: Price {current_price:.2f} below VWAP {vwap:.2f}")
-                return None
-            
-            # OBV must be above its average (confirming accumulation)
-            if obv is not None and obv_sma is not None and obv < obv_sma:
-                logger.info(f"VETO | {symbol} BUY vetoed: OBV {obv:.2f} below average {obv_sma:.2f}")
-                return None
+            if active_strat_name in ("MacdMaCrossStrategy", "BreakoutStrategy") and not ai_triggered:
+                # Trend/Breakout strategies require price above VWAP or strong accumulation
+                if vwap is not None and current_price < vwap * 0.999:
+                    logger.info(f"VETO | {symbol} {active_strat_name} BUY vetoed: Price {current_price:.2f} below VWAP {vwap:.2f}")
+                    return None
+                if obv is not None and obv_sma is not None and obv < obv_sma:
+                    logger.info(f"VETO | {symbol} {active_strat_name} BUY vetoed: OBV {obv:.2f} below average {obv_sma:.2f}")
+                    return None
+            else:
+                # Mean-reversion strategies (BollingerBands, RSI, Divergence) buy BELOW VWAP by design.
+                # Only veto if volume is completely dead (<25% of 20-bar avg) with no lower-wick rejection and weak RSI.
+                vols = list(symbol_data.volumes)
+                if len(vols) >= 20:
+                    avg_vol = sum(vols[-20:]) / 20.0
+                    cur_vol = vols[-1]
+                    cur_rsi = symbol_data.get_rsi() or 50.0
+                    if avg_vol > 0 and cur_vol < avg_vol * 0.25 and cur_rsi > 26.0 and (obv is not None and obv_sma is not None and obv < obv_sma):
+                        logger.info(
+                            f"VETO | {symbol} {active_strat_name} BUY vetoed: Dead volume ({cur_vol:.2f} < 25% of avg {avg_vol:.2f}) and weak OBV"
+                        )
+                        return None
 
         # 4. BTC Directional Filter Veto (Macro Regime)
         if signal == "BUY" and settings.ENABLE_BTC_DIRECTIONAL_FILTER:
@@ -216,11 +291,14 @@ class DynamicStrategyProxy:
                     return None
 
                 if confirmation.confluence_level == ConfluenceLevel.MEDIA:
-                    confluence_mult = 0.5
-                    logger.info(f"CONFLOUENCE | {symbol} {signal} confirmed with MEDIA (position reduced to 50%)")
+                    confluence_mult = max(0.7, confirmation.position_multiplier)
+                    logger.info(f"CONFLOUENCE | {symbol} {signal} confirmed with MEDIA ({confirmation.reason}, mult={confluence_mult:.2f}x)")
                 elif confirmation.confluence_level == ConfluenceLevel.ALTA:
                     confluence_mult = 1.0
-                    logger.info(f"CONFLOUENCE | {symbol} {signal} confirmed with ALTA")
+                    logger.info(f"CONFLOUENCE | {symbol} {signal} confirmed with ALTA ({confirmation.reason})")
+                else:
+                    confluence_mult = max(0.65, confirmation.position_multiplier)
+                    logger.info(f"CONFLOUENCE | {symbol} {signal} confirmed ({confirmation.reason}, mult={confluence_mult:.2f}x)")
             except Exception as e:
                 logger.warning(f"CONFLOUENCE | Error in confluence check: {e}")
 
@@ -253,6 +331,32 @@ class DynamicStrategyProxy:
 
             except Exception as e:
                 logger.warning(f"ENSEMBLE | Error in ML ensemble: {e}")
+
+        # 8. 4th Brain (Kronos Foundation Model) Confluence & Protection Veto
+        if signal is not None and getattr(settings, "ML_ENABLED", False):
+            try:
+                from app.services.ml.kronos_client import kronos_client
+                kronos_pred = kronos_client.cached_predictions.get(symbol)
+                if kronos_pred and isinstance(kronos_pred, dict):
+                    k_dir = kronos_pred.get("direction", "NEUTRAL")
+                    k_conf = float(kronos_pred.get("confidence", 0.5))
+                    k_move = float(kronos_pred.get("expected_pct", 0.0))
+
+                    if signal == "BUY":
+                        # If Kronos predicts a severe breakdown (>0.40% drop with >=70% confidence), veto the buy
+                        if k_dir == "BEARISH" and k_conf >= 0.70 and k_move <= -0.40:
+                            logger.info(
+                                f"KRONOS VETO | {symbol} BUY blocked: Kronos foundation model forecasts breakdown ({k_move:+.2f}%, conf={k_conf*100:.0f}%)"
+                            )
+                            return None
+                        # If Kronos aligns with the buy, boost conviction multiplier
+                        elif k_dir == "BULLISH" and k_conf >= 0.65:
+                            ensemble_mult = min(1.35, ensemble_mult * 1.15)
+                            logger.info(
+                                f"KRONOS BOOST | {symbol} BUY confirmed by Kronos ({k_move:+.2f}%, conf={k_conf*100:.0f}%), mult -> {ensemble_mult:.2f}x"
+                            )
+            except Exception as e:
+                logger.debug(f"Kronos evaluation error in strategy factory for {symbol}: {e}")
 
         if signal is not None:
             combined_mult = round(max(0.3, min(1.5, confluence_mult * ensemble_mult)), 4)

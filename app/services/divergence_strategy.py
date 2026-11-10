@@ -8,10 +8,12 @@ logger = logging.getLogger(__name__)
 
 class RsiDivergenceStrategy:
     """Strategy that combines RSI levels with Regular Divergence detection."""
-    def __init__(self, rsi_period: int = 14, overbought: float = 70.0, oversold: float = 30.0, pivot_length: int = 5):
-        self.rsi_period = rsi_period
-        self.overbought = overbought
-        self.oversold = oversold
+    def __init__(self, rsi_period: Optional[int] = None, overbought: Optional[float] = None, oversold: Optional[float] = None, pivot_length: int = 5):
+        from app.core.config import get_settings
+        config = get_settings()
+        self.rsi_period = rsi_period or config.RSI_PERIOD
+        self.overbought = overbought or config.RSI_OVERBOUGHT
+        self.oversold = oversold or config.RSI_OVERSOLD
         self.pivot_length = pivot_length
         self.positions: Dict[str, bool] = {}
 

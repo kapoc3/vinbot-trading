@@ -40,6 +40,11 @@ class RiskManager:
                 key_meta = f"{symbol.lower()}_pos_meta"
                 meta = await persistence.get_state(key_meta, {})
                 if meta:
+                    if isinstance(meta.get("entry_time"), str):
+                        try:
+                            meta["entry_time"] = datetime.fromisoformat(meta["entry_time"])
+                        except Exception:
+                            meta["entry_time"] = datetime.now(timezone.utc)
                     self.position_data[symbol] = meta
                 else:
                     # Fallback for old states
@@ -149,11 +154,27 @@ class RiskManager:
         if symbol in self.position_data:
             self.position_data[symbol]["current_price"] = current_price
 
-        # 1. Check Hard Stop Loss (dynamic price)
+        # 1. Check Hard Stop Loss (dynamic price) - Unconditional emergency exit
         sl_price = float(pos_meta.get("sl_price", 0.0))
         if current_price <= sl_price:
             logger.warning(f"RISK | STOP LOSS triggered for {symbol} at {current_price} (Price <= {sl_price:.2f})")
             return {"signal": "STOP_LOSS", "pnl": pnl_pct, "quantity": float(pos_meta.get("current_qty", 0.0))}
+
+        # Minimum Hold Time guard: prevent premature noise exits (OBI flip, micro-trailing) for MIN_HOLD_SECONDS
+        entry_time = pos_meta.get("entry_time")
+        if entry_time:
+            if isinstance(entry_time, str):
+                try:
+                    entry_time = datetime.fromisoformat(entry_time)
+                except Exception:
+                    entry_time = None
+            if entry_time and isinstance(entry_time, datetime):
+                seconds_held = (datetime.now(timezone.utc) - entry_time).total_seconds()
+                min_hold = getattr(settings, "MIN_HOLD_SECONDS", 60)
+                if seconds_held < min_hold:
+                    # Allow exit only if target TP is hit early (windfall profit), else let trade breathe
+                    if pnl_pct < float(settings.TAKE_PROFIT_PCT):
+                        return None
 
         # 1.5 Check Trailing Take Profit (if enabled)
         trailing_result = self.check_trailing_tp(symbol, current_price)
@@ -335,6 +356,11 @@ class RiskManager:
         entry_time = pos_data.get("entry_time")
         if not entry_time:
             return None
+        if isinstance(entry_time, str):
+            try:
+                entry_time = datetime.fromisoformat(entry_time)
+            except Exception:
+                return None
 
         # Check cooldown
         cooldown = self.time_exit_cooldowns.get(symbol)

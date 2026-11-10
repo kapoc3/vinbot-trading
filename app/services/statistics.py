@@ -53,9 +53,31 @@ class StatisticsService:
     async def get_all_symbols_stats(self) -> Dict[str, Any]:
         """Get aggregated statistics for all symbols."""
         try:
-            query = "SELECT symbol, side, price, quantity, timestamp FROM orders ORDER BY timestamp ASC"
+            query = "SELECT symbol, side, price, quantity, timestamp, order_id FROM orders ORDER BY timestamp ASC"
             result = await db.execute(query)
-            orders = await result.fetchall()
+            raw_orders = list(await result.fetchall())
+
+            # Also merge orders from sibling SQLite engine databases (classic + scalper)
+            import os
+            import sqlite3
+            seen_order_ids = {str(o[5]) for o in raw_orders if len(o) > 5 and o[5] is not None}
+            for extra_db in ("data/vinbot_classic.db", "data/vinbot_scalper.db"):
+                if os.path.exists(extra_db):
+                    try:
+                        with sqlite3.connect(extra_db) as sconn:
+                            rows = sconn.execute(
+                                "SELECT symbol, side, price, quantity, timestamp, order_id FROM orders ORDER BY timestamp ASC"
+                            ).fetchall()
+                            for r in rows:
+                                oid = str(r[5]) if len(r) > 5 and r[5] is not None else None
+                                if oid and oid not in seen_order_ids:
+                                    raw_orders.append(r)
+                                    seen_order_ids.add(oid)
+                    except Exception:
+                        pass
+
+            raw_orders.sort(key=lambda r: str(r[4] or ""))
+            orders = [r[:5] for r in raw_orders]
             
             if not orders:
                 return {"error": "No orders found"}
@@ -107,6 +129,17 @@ class StatisticsService:
             logger.error(f"Error getting all stats: {e}")
             return {"error": str(e)}
 
+    @staticmethod
+    def _parse_ts(ts: Any) -> Optional[datetime]:
+        if isinstance(ts, datetime):
+            return ts
+        if isinstance(ts, str) and ts:
+            try:
+                return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            except Exception:
+                return None
+        return None
+
     def _match_trades(self, orders: List) -> List[Dict[str, Any]]:
         """Match BUY/SELL orders to create completed trades."""
         trades = []
@@ -114,17 +147,20 @@ class StatisticsService:
         
         for order in orders:
             side = order[1]
-            price = order[2]
-            qty = order[3]
+            price = float(order[2] or 0.0)
+            qty = float(order[3] or 0.0)
             timestamp = order[4]
+            if price <= 0 or qty <= 0:
+                continue
             
             if side == "BUY":
                 inventory.append({"price": price, "quantity": qty, "timestamp": timestamp})
             elif side == "SELL" and inventory:
                 sell_qty = qty
                 sell_price = price
-                trade_profit = 0
-                trade_qty = 0
+                trade_profit = 0.0
+                trade_qty = 0.0
+                first_buy_ts = inventory[0]["timestamp"]
                 
                 while sell_qty > 0 and inventory:
                     buy = inventory[0]
@@ -140,11 +176,14 @@ class StatisticsService:
                         sell_qty = 0
                 
                 if trade_qty > 0:
-                    duration = (timestamp - inventory[0]["timestamp"]).total_seconds() / 60 if inventory else 0
+                    t_end = self._parse_ts(timestamp)
+                    t_start = self._parse_ts(first_buy_ts)
+                    duration = (t_end - t_start).total_seconds() / 60.0 if (t_end and t_start) else 0.0
                     trades.append({
                         "profit": trade_profit,
                         "quantity": trade_qty,
-                        "duration_minutes": duration if duration > 0 else 0,
+                        "price": sell_price,
+                        "duration_minutes": duration if duration > 0 else 0.0,
                     })
         
         return trades

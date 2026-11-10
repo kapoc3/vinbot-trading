@@ -68,6 +68,12 @@ class Settings(BaseSettings):
     TRAILING_TP_ATR_MULTIPLIER: float = 2.0
     TRAILING_TP_ACTIVATION_PCT: float = 1.5
 
+    # Minimum Hold Time (Prevents immediate micro-exits / churn in volatile noise)
+    MIN_HOLD_SECONDS: int = 60
+
+    # Minimum Bollinger Bandwidth for Mean-Reversion Entry (Filter tight compression)
+    MIN_BB_BANDWIDTH_PCT: float = 1.0
+
     # Time-Based Exit
     ENABLE_TIME_EXIT: bool = True
     MAX_HOLD_HOURS: int = 4

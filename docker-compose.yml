@@ -6,6 +6,8 @@ services:
     container_name: vinbot-scalper
     env_file:
       - .env.scalper
+    environment:
+      - KRONOS_SERVICE_URL=http://kronos:8005
     volumes:
       - ./data:/app/data
       - ./logs_scalper:/app/logs
@@ -27,9 +29,17 @@ services:
       - RSI_OVERBOUGHT=65.0
       - ENABLE_BTC_DIRECTIONAL_FILTER=false
       - ENABLE_RELATIVE_STRENGTH_FILTER=false
+      - KRONOS_SERVICE_URL=http://kronos:8005
     restart: always
     depends_on:
       - db
+
+  kronos:
+    build: ./kronos_service
+    container_name: vinbot-kronos
+    volumes:
+      - ./data/kronos_cache:/app/data/hf_cache
+    restart: always
 
   frontend:
     image: nginx:alpine
