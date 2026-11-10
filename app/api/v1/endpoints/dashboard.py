@@ -26,6 +26,9 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
+class SellPositionRequest(BaseModel):
+    symbol: str
+
 # Simple in-memory cache
 _cache = {
     "data": None,
@@ -803,3 +806,140 @@ async def reset_operations(username: str = Depends(verify_session)):
     await notification_service.send_message("📊 *VinBot Operations Reset*\nLas operaciones, posiciones activas y PnL han sido *REINICIADOS* manualmente desde el Dashboard\\.")
     logger.info(f"DASHBOARD | Operations reset by user '{username}'.")
     return {"status": "success", "message": "Operaciones y PnL reiniciados con éxito."}
+
+
+def _extract_fill_price(order: Dict[str, Any], fallback: float) -> float:
+    """Extract weighted-average executed fill price from order response."""
+    raw_p = order.get("price")
+    if raw_p is not None:
+        try:
+            p_val = float(raw_p)
+            if p_val > 0:
+                return p_val
+        except (ValueError, TypeError):
+            pass
+    fills = order.get("fills") or []
+    if fills:
+        try:
+            tot_cost = sum(float(f.get("price", 0)) * float(f.get("qty", 0)) for f in fills)
+            tot_qty = sum(float(f.get("qty", 0)) for f in fills)
+            if tot_qty > 0:
+                return tot_cost / tot_qty
+        except (ValueError, TypeError):
+            pass
+    return float(fallback)
+
+
+@router.post("/position/sell")
+async def sell_position(payload: SellPositionRequest, username: str = Depends(verify_session)):
+    """Manually execute a market sell order for an active open position on demand."""
+    symbol = payload.symbol.strip().upper()
+    pos_data = risk_manager.position_data.get(symbol, {})
+    qty_to_sell = float(pos_data.get("current_qty", 0.0))
+    entry_p = float(risk_manager.entry_prices.get(symbol, 0.0))
+
+    # Fallback to wallet balance if pos_data quantity is zero or missing
+    if qty_to_sell <= 0:
+        base_asset = symbol.replace("USDC", "").replace("USDT", "").replace("FDUSD", "")
+        try:
+            bal = await binance_client.get_asset_balance(base_asset)
+            qty_to_sell = float(bal.get("free", 0.0))
+        except Exception as e:
+            logger.warning(f"DASHBOARD | Could not fetch wallet balance for {base_asset}: {e}")
+
+    if qty_to_sell <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"No hay posición activa ni saldo disponible para vender en {symbol}."
+        )
+
+    try:
+        lot_info = await binance_client.get_exchange_info(symbol)
+        step_size = float(lot_info.get("stepSize", 0.000001))
+        min_qty = float(lot_info.get("minQty", 0.0))
+        rounded_qty_str = binance_client.round_step(qty_to_sell, step_size)
+        quantity = float(rounded_qty_str)
+
+        if quantity <= 0 or (min_qty > 0 and quantity < min_qty):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"La cantidad calculada ({quantity}) no cumple con el tamaño mínimo de Binance ({min_qty})."
+            )
+
+        fallback_price = float(pos_data.get("current_price", entry_p) or entry_p or 0.0)
+        order = await trading_engine.place_market_order(
+            symbol=symbol,
+            side="SELL",
+            quantity=quantity,
+            rsi=None,
+            current_price=fallback_price,
+            notify=False
+        )
+
+        exec_price = _extract_fill_price(order, fallback_price)
+        exec_qty = float(order.get("executedQty", quantity))
+
+        if entry_p > 0:
+            gross_pnl, total_fees, net_pnl = risk_manager.calculate_net_trade_pnl(entry_p, exec_price, exec_qty)
+            net_pnl_pct = (net_pnl / (entry_p * exec_qty)) * 100.0 if (entry_p * exec_qty) > 0 else 0.0
+        else:
+            gross_pnl, total_fees, net_pnl = 0.0, 0.0, 0.0
+            net_pnl_pct = 0.0
+
+        await current_strategy.update_position(symbol, False)
+        await risk_manager.clear_entry_price(symbol)
+        if net_pnl != 0.0:
+            await risk_manager.update_daily_pnl(net_pnl)
+
+        quote_asset = "USDC" if "USDC" in symbol else "USDT"
+        try:
+            bal_info = await binance_client.get_asset_balance(quote_asset)
+            current_bal = float(bal_info.get("free", 0.0))
+        except Exception:
+            current_bal = 0.0
+
+        await notification_service.notify_trade_closed(
+            signal="VENTA_MANUAL",
+            symbol=symbol,
+            entry_price=entry_p if entry_p > 0 else exec_price,
+            exit_price=exec_price,
+            qty=exec_qty,
+            pnl_pct=round(net_pnl_pct, 2),
+            pnl_usd=round(net_pnl, 4),
+            daily_pnl=risk_manager.daily_pnl,
+            balance=current_bal,
+            quote_asset=quote_asset,
+            fee_usd=round(total_fees, 4),
+        )
+
+        # Invalidate dashboard and wallet caches for immediate refresh
+        _cache["timestamp"] = 0.0
+        _wallet_cache["timestamp"] = 0.0
+
+        logger.info(
+            f"DASHBOARD | Position {symbol} manually sold by user '{username}'. "
+            f"Qty: {exec_qty}, Exit Price: {exec_price}, Net PnL: ${net_pnl:.4f}"
+        )
+
+        return {
+            "status": "success",
+            "message": f"Posición de {symbol} vendida con éxito a mercado.",
+            "data": {
+                "symbol": symbol,
+                "order_id": order.get("orderId"),
+                "quantity": exec_qty,
+                "executed_price": exec_price,
+                "gross_pnl": round(gross_pnl, 4),
+                "fees": round(total_fees, 4),
+                "net_pnl": round(net_pnl, 4),
+                "net_pnl_pct": round(net_pnl_pct, 2),
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"DASHBOARD | Error executing manual sell for {symbol}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al ejecutar la venta en Binance: {str(e)}"
+        )

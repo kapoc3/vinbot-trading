@@ -247,3 +247,77 @@ def test_dashboard_get_historical_endpoint(mock_dependencies):
         
     app.dependency_overrides.clear()
 
+def test_dashboard_sell_position_endpoint(mock_dependencies):
+    from app.main import app
+    from app.api.v1.endpoints.dashboard import verify_session
+    client = TestClient(app)
+
+    # 1. Unauthorized request
+    res = client.post("/api/v1/dashboard/position/sell", json={"symbol": "BTCUSDC"})
+    assert res.status_code == 401
+
+    # Override session auth
+    app.dependency_overrides[verify_session] = lambda: "admin"
+
+    # 2. No active position and no balance
+    mock_risk = mock_dependencies["risk"]
+    mock_risk.position_data = {}
+    mock_risk.entry_prices = {}
+
+    with patch("app.api.v1.endpoints.dashboard.binance_client") as mock_bc:
+        mock_bc.get_asset_balance = AsyncMock(return_value={"free": "0.0", "locked": "0.0"})
+        res = client.post("/api/v1/dashboard/position/sell", json={"symbol": "BTCUSDC"})
+        assert res.status_code == 400
+        assert "No hay posición activa" in res.json()["detail"]
+
+    # 3. Successful market sell
+    mock_risk.position_data = {
+        "BTCUSDC": {
+            "initial_qty": 0.05,
+            "current_qty": 0.05,
+            "current_price": 68000.0,
+            "sl_price": 65000.0,
+            "tp_hits": 0
+        }
+    }
+    mock_risk.entry_prices = {"BTCUSDC": 66000.0}
+    mock_risk.calculate_net_trade_pnl.return_value = (100.0, 5.0, 95.0)
+    mock_risk.update_daily_pnl = AsyncMock()
+
+    mock_engine = mock_dependencies["engine"]
+    mock_engine.place_market_order = AsyncMock(return_value={
+        "orderId": 998877,
+        "symbol": "BTCUSDC",
+        "side": "SELL",
+        "price": "68000.0",
+        "executedQty": "0.05",
+        "status": "FILLED"
+    })
+
+    with patch("app.api.v1.endpoints.dashboard.binance_client") as mock_bc, \
+         patch("app.api.v1.endpoints.dashboard.current_strategy") as mock_strat, \
+         patch("app.api.v1.endpoints.dashboard.notification_service") as mock_notif:
+
+        mock_bc.get_exchange_info = AsyncMock(return_value={"stepSize": "0.00001", "minQty": "0.0001"})
+        mock_bc.round_step = MagicMock(return_value="0.05")
+        mock_bc.get_asset_balance = AsyncMock(return_value={"free": "500.0"})
+        mock_strat.update_position = AsyncMock()
+        mock_notif.notify_trade_closed = AsyncMock()
+
+        res = client.post("/api/v1/dashboard/position/sell", json={"symbol": "BTCUSDC"})
+        assert res.status_code == 200
+        data = res.json()
+        assert data["status"] == "success"
+        assert data["data"]["symbol"] == "BTCUSDC"
+        assert data["data"]["order_id"] == 998877
+        assert data["data"]["net_pnl"] == 95.0
+
+        mock_engine.place_market_order.assert_called_once()
+        mock_strat.update_position.assert_called_with("BTCUSDC", False)
+        mock_risk.clear_entry_price.assert_called_with("BTCUSDC")
+        mock_risk.update_daily_pnl.assert_called_with(95.0)
+        mock_notif.notify_trade_closed.assert_called_once()
+
+    app.dependency_overrides.clear()
+
+

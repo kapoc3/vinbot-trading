@@ -988,7 +988,7 @@ function renderActivePositions(activePositions, data) {
         card.title = `Clic para ver análisis detallado y controles de ${sym}`;
         card.onclick = () => openSymbolModal(sym);
         card.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 0.85rem;">
+            <div style="display: flex; align-items: center; gap: 0.85rem; flex: 1; min-width: 240px;">
                 <span style="font-size: 1.5rem;">🪙</span>
                 <div>
                     <div style="display: flex; align-items: center; gap: 0.5rem;">
@@ -1002,7 +1002,7 @@ function renderActivePositions(activePositions, data) {
                     </div>
                 </div>
             </div>
-            <div style="display: flex; align-items: center; gap: 1.5rem;">
+            <div style="display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap;">
                 <div style="text-align: right;">
                     <div style="font-size: 0.75rem; color: var(--text-secondary);">SL (BE + Fees)</div>
                     <div style="font-size: 0.9rem; font-weight: 700; color: #f87171;">$${pos.sl_price.toFixed(pos.sl_price >= 100 ? 2 : 4)}</div>
@@ -1013,6 +1013,9 @@ function renderActivePositions(activePositions, data) {
                         ${sign}$${pnlUsd.toFixed(2)} (${sign}${pnlPct.toFixed(2)}%)
                     </div>
                 </div>
+                <button class="btn-sell-market" title="Vender posición inmediatamente a precio de mercado" onclick="event.stopPropagation(); triggerSellPosition('${sym}', ${pos.quantity}, ${pos.current_price}, ${pnlUsd});">
+                    ⚡ Vender
+                </button>
             </div>
         `;
         listEl.appendChild(card);
@@ -1085,6 +1088,7 @@ function openSymbolModal(symbol) {
 
     // Active Trade Details
     const tradeSec = document.getElementById('modal-active-trade-section');
+    const modalSellBtn = document.getElementById('modal-btn-sell-now');
     if (pos) {
         tradeSec.style.display = 'block';
         document.getElementById('modal-trade-entry').textContent = `$${pos.entry_price.toFixed(pos.entry_price >= 100 ? 2 : 4)}`;
@@ -1094,8 +1098,16 @@ function openSymbolModal(symbol) {
         const pnlEl = document.getElementById('modal-trade-pnl');
         pnlEl.textContent = `${pnlSign}$${pos.unrealized_pnl_usd.toFixed(2)} (${pnlSign}${pos.unrealized_pnl_pct.toFixed(2)}%)`;
         pnlEl.style.color = pnlCol;
+
+        if (modalSellBtn) {
+            modalSellBtn.style.display = 'flex';
+            modalSellBtn.onclick = () => {
+                triggerSellPosition(cleanSym, pos.quantity, pos.current_price, pos.unrealized_pnl_usd);
+            };
+        }
     } else {
         tradeSec.style.display = 'none';
+        if (modalSellBtn) modalSellBtn.style.display = 'none';
     }
 
     // Modal Action: Open in Chart tab
@@ -1120,6 +1132,63 @@ function closeSymbolModal() {
     const modal = document.getElementById('symbol-detail-modal');
     if (modal) modal.classList.remove('active');
 }
+
+// ==============================================================================
+// ON-DEMAND MARKET SELL FOR ACTIVE POSITIONS
+// ==============================================================================
+async function triggerSellPosition(symbol, qty, currentPrice, pnlUsd) {
+    if (!symbol) return;
+    const cleanSym = symbol.trim().toUpperCase();
+    const qtyText = (qty && qty > 0) ? `${qty} ` : '';
+    const pnlSign = (pnlUsd !== undefined && pnlUsd >= 0) ? '+' : '';
+    const pnlText = (pnlUsd !== undefined) ? `\nPnL Estimado: ${pnlSign}$${Number(pnlUsd).toFixed(2)} USD` : '';
+    const priceText = currentPrice ? `$${Number(currentPrice).toFixed(currentPrice >= 100 ? 2 : 4)}` : 'Mercado';
+
+    const confirmed = window.confirm(
+        `⚠️ ¿CONFIRMAR VENTA A MERCADO?\n\n` +
+        `• Símbolo: ${cleanSym}\n` +
+        `• Cantidad: ${qtyText}${cleanSym}\n` +
+        `• Precio Estimado: ${priceText}` +
+        `${pnlText}\n\n` +
+        `Se enviará una orden de venta a precio de mercado en Binance y se cerrará la posición inmediatamente.`
+    );
+    if (!confirmed) return;
+
+    showToast('Enviando Orden', `Ejecutando venta a mercado para ${cleanSym}...`);
+
+    try {
+        const response = await fetch('/api/v1/dashboard/position/sell', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ symbol: cleanSym })
+        });
+
+        if (response.status === 401) {
+            window.location.reload();
+            return;
+        }
+
+        const resData = await response.json();
+        if (response.ok && resData.status === 'success') {
+            const netPnl = resData.data ? resData.data.net_pnl : 0;
+            const netSign = netPnl >= 0 ? '+' : '';
+            showToast(
+                '✅ Venta Exitosa',
+                `Se vendió ${cleanSym} correctamente. PnL Neto: ${netSign}$${Number(netPnl).toFixed(2)} USD`
+            );
+            closeSymbolModal();
+            fetchMetrics();
+        } else {
+            showToast('❌ Error en Venta', resData.detail || resData.message || 'No se pudo completar la venta.');
+        }
+    } catch (err) {
+        console.error('Error executing manual sell:', err);
+        showToast('❌ Error de Red', `Fallo de conexión al vender ${cleanSym}: ${err.message}`);
+    }
+}
+window.triggerSellPosition = triggerSellPosition;
 
 // ==============================================================================
 // TAB NAVIGATION SYSTEM
