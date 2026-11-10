@@ -2,6 +2,7 @@
 let prevStrategies = {};
 let isBotRunning = false;
 let selectedDate = '';
+let lastDashboardData = null;
 
 // DOM elements
 const statusIndicator = document.getElementById('status-indicator');
@@ -78,6 +79,8 @@ async function fetchFilteredTrades() {
 
 // Update DOM elements with API response
 function updateUI(data) {
+    lastDashboardData = data;
+
     // 0. Update Profile Badge & Brand Title
     const profileBadgeEl = document.getElementById('profile-badge');
     const brandTitleEl = document.getElementById('brand-title');
@@ -97,6 +100,37 @@ function updateUI(data) {
         brandTitleEl.textContent = data.project_name;
     }
 
+    // Update Navigation Tab Pills
+    const navPortPill = document.getElementById('nav-portfolio-pill');
+    if (navPortPill && data.wallet) {
+        navPortPill.textContent = `$${(data.wallet.total_usd || 0).toFixed(2)}`;
+    }
+    const navTradesPill = document.getElementById('nav-trades-pill');
+    if (navTradesPill && data.recent_trades) {
+        navTradesPill.textContent = `${data.recent_trades.length}`;
+    }
+
+    // Update System Tab Information
+    const sysProfilePill = document.getElementById('system-profile-pill');
+    if (sysProfilePill && data.bot_profile) sysProfilePill.textContent = data.bot_profile;
+    const sysProfileDesc = document.getElementById('system-profile-desc');
+    if (sysProfileDesc) {
+        sysProfileDesc.textContent = data.scanner_enabled 
+            ? 'Modo Satélite Hot Momentum (30% Capital) con rotación continua en líderes de Binance.' 
+            : 'Modo Core (70% Capital) en activos consolidados de bajo riesgo (BTC, ETH, SOL, BNB).';
+    }
+    const sysCapVal = document.getElementById('system-capital-val');
+    if (sysCapVal) sysCapVal.textContent = data.scanner_enabled ? '$30.00 USD' : '$70.00 USD';
+    const sysScanStatus = document.getElementById('system-scanner-status');
+    if (sysScanStatus) {
+        sysScanStatus.textContent = data.scanner_enabled ? '🟢 ACTIVO (Cada 2 horas en 1h window)' : '⚪ Inactivo (Modo Core Fijo)';
+        sysScanStatus.style.color = data.scanner_enabled ? 'var(--accent-green)' : 'var(--text-secondary)';
+    }
+    const sysFeeVal = document.getElementById('system-fee-val');
+    if (sysFeeVal && data.scanner_info) {
+        sysFeeVal.textContent = `${data.scanner_info.fee_pct}% (${data.scanner_info.round_trip_factor}x)`;
+    }
+
     // 1. System Status & Bot Button Toggle
     isBotRunning = data.bot_running;
     if (isBotRunning) {
@@ -111,6 +145,13 @@ function updateUI(data) {
         
         btnToggleBot.textContent = 'Iniciar Bot';
         btnToggleBot.className = 'btn btn-primary';
+    }
+
+    // Sync System tab bot button
+    const btnToggleBotSys = document.getElementById('btn-toggle-bot-system');
+    if (btnToggleBotSys) {
+        btnToggleBotSys.textContent = isBotRunning ? 'Detener Bot' : 'Iniciar Bot';
+        btnToggleBotSys.className = isBotRunning ? 'btn btn-danger' : 'btn btn-primary';
     }
 
     // 2. Metrics Cards
@@ -148,6 +189,9 @@ function updateUI(data) {
     widgetDrawdown.textContent = `$${dd.toFixed(4)}`;
     widgetDrawdown.className = `stat-value ${dd > 0 ? 'negative' : ''}`;
 
+    // 3.5 Render Active Open Positions
+    renderActivePositions(data.active_positions || {}, data);
+
     // 4. Render Symbols Grid & Track Strategy changes
     symbolsGrid.innerHTML = '';
     const symbols = Object.keys(data.symbol_regimes || {});
@@ -170,7 +214,9 @@ function updateUI(data) {
             prevStrategies[symbol] = strategyName;
             
             const card = document.createElement('div');
-            card.className = 'symbol-card';
+            card.className = 'symbol-card clickable-card';
+            card.title = `Clic para ver análisis y detalles de ${symbol}`;
+            card.onclick = () => openSymbolModal(symbol);
             card.innerHTML = `
                 <div class="symbol-header">
                     <span class="symbol-name">${symbol}</span>
@@ -179,6 +225,9 @@ function updateUI(data) {
                 <div class="strategy-info">
                     <span class="strategy-label">Estrategia Activa</span>
                     <span class="strategy-value">${strategyName}</span>
+                </div>
+                <div style="font-size: 0.75rem; color: #60a5fa; margin-top: 0.5rem; text-align: right; font-weight: 600;">
+                    Ver detalle completo ➔
                 </div>
             `;
             symbolsGrid.appendChild(card);
@@ -288,7 +337,11 @@ function renderWalletPortfolio(wallet) {
         }
 
         const card = document.createElement('div');
-        card.className = 'symbol-card';
+        card.className = 'symbol-card' + (!isStable ? ' clickable-card' : '');
+        if (!isStable) {
+            card.title = `Clic para ver análisis y detalles de ${item.asset}`;
+            card.onclick = () => openSymbolModal(item.asset + 'USDC');
+        }
         card.innerHTML = `
             <div class="symbol-header">
                 <span class="symbol-name">${icon} ${item.asset}</span>
@@ -374,7 +427,9 @@ function renderMLInsights(ml) {
                 : `CV: ${s.cv_accuracy.toFixed(1)}%`;
 
             const card = document.createElement('div');
-            card.className = 'symbol-card';
+            card.className = 'symbol-card clickable-card';
+            card.title = `Clic para ver análisis y detalles de ${sym}`;
+            card.onclick = () => openSymbolModal(sym);
             card.innerHTML = `
                 <div class="symbol-header">
                     <span class="symbol-name">${sym}</span>
@@ -894,6 +949,256 @@ btnChartCandle.addEventListener('click', () => {
         fetchHistoricalData(currentChartSymbol, currentChartInterval);
     }
 });
+
+// ==============================================================================
+// ACTIVE OPEN POSITIONS WIDGET
+// ==============================================================================
+function renderActivePositions(activePositions, data) {
+    const listEl = document.getElementById('active-positions-list');
+    const badgeEl = document.getElementById('active-positions-count-badge');
+    if (!listEl) return;
+
+    const syms = Object.keys(activePositions || {});
+    if (badgeEl) {
+        badgeEl.textContent = `${syms.length} ${syms.length === 1 ? 'ACTIVA' : 'ACTIVAS'}`;
+        badgeEl.style.background = syms.length > 0 ? 'rgba(16, 185, 129, 0.25)' : 'rgba(255, 255, 255, 0.08)';
+        badgeEl.style.color = syms.length > 0 ? '#34d399' : 'var(--text-secondary)';
+    }
+
+    if (syms.length === 0) {
+        listEl.innerHTML = `
+            <div class="loading-placeholder" style="padding: 1rem; text-align: left; border-radius: 8px;">
+                🟢 <strong>Sin posiciones abiertas actualmente.</strong> El bot está en modo centinela analizando el mercado para comprar con confluencia y bajo riesgo.
+            </div>
+        `;
+        return;
+    }
+
+    listEl.innerHTML = '';
+    syms.forEach(sym => {
+        const pos = activePositions[sym];
+        const pnlUsd = pos.unrealized_pnl_usd || 0.0;
+        const pnlPct = pos.unrealized_pnl_pct || 0.0;
+        const isWin = pnlUsd >= 0;
+        const sign = isWin ? '+' : '';
+        const color = isWin ? 'var(--accent-green)' : 'var(--accent-red)';
+        
+        const card = document.createElement('div');
+        card.className = 'position-card clickable-card';
+        card.title = `Clic para ver análisis detallado y controles de ${sym}`;
+        card.onclick = () => openSymbolModal(sym);
+        card.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 0.85rem;">
+                <span style="font-size: 1.5rem;">🪙</span>
+                <div>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span style="font-weight: 800; font-size: 1.1rem; color: #ffffff;">${sym}</span>
+                        <span class="regime-tag trending" style="font-size: 0.7rem; padding: 2px 6px;">EN CARTERA</span>
+                    </div>
+                    <div style="font-size: 0.8rem; color: var(--text-secondary);">
+                        Entrada: <strong>$${pos.entry_price.toFixed(pos.entry_price >= 100 ? 2 : 4)}</strong> | 
+                        Actual: <strong>$${pos.current_price.toFixed(pos.current_price >= 100 ? 2 : 4)}</strong> | 
+                        Cantidad: ${pos.quantity} ($${pos.value_usd.toFixed(2)})
+                    </div>
+                </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 1.5rem;">
+                <div style="text-align: right;">
+                    <div style="font-size: 0.75rem; color: var(--text-secondary);">SL (BE + Fees)</div>
+                    <div style="font-size: 0.9rem; font-weight: 700; color: #f87171;">$${pos.sl_price.toFixed(pos.sl_price >= 100 ? 2 : 4)}</div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 0.75rem; color: var(--text-secondary);">PnL No Realizado</div>
+                    <div style="font-size: 1.15rem; font-weight: 800; color: ${color};">
+                        ${sign}$${pnlUsd.toFixed(2)} (${sign}${pnlPct.toFixed(2)}%)
+                    </div>
+                </div>
+            </div>
+        `;
+        listEl.appendChild(card);
+    });
+}
+
+// ==============================================================================
+// SYMBOL DETAIL MODAL (DRILL-DOWN INTERACTION)
+// ==============================================================================
+function openSymbolModal(symbol) {
+    if (!lastDashboardData) return;
+    const modal = document.getElementById('symbol-detail-modal');
+    if (!modal) return;
+
+    const data = lastDashboardData;
+    const cleanSym = symbol.trim().toUpperCase();
+    const regime = (data.symbol_regimes && data.symbol_regimes[cleanSym]) || 'Trending';
+    const strategy = (data.symbol_strategies && data.symbol_strategies[cleanSym]) || data.strategy_mode || 'Auto';
+    const aiSym = (data.ml_insights && data.ml_insights.symbols && data.ml_insights.symbols[cleanSym]) || {};
+    const pos = (data.active_positions && data.active_positions[cleanSym]) || null;
+    
+    // Determine live price
+    let price = pos ? pos.current_price : 0.0;
+    if (!price && data.wallet && data.wallet.assets) {
+        const base = cleanSym.replace('USDC', '').replace('USDT', '');
+        const asset = data.wallet.assets.find(a => a.asset === base);
+        if (asset) price = asset.price_usd;
+    }
+
+    document.getElementById('modal-symbol-title').textContent = cleanSym;
+    const regimeTag = document.getElementById('modal-symbol-regime');
+    regimeTag.textContent = regime;
+    regimeTag.className = `regime-tag ${regime.toLowerCase()}`;
+    document.getElementById('modal-symbol-strategy').textContent = `Estrategia: ${strategy}`;
+
+    document.getElementById('modal-price').textContent = price > 0 ? `$${price.toFixed(price >= 100 ? 2 : 4)}` : 'Monitoreando';
+    document.getElementById('modal-regime-text').textContent = regime;
+    document.getElementById('modal-rsi').textContent = aiSym.rsi !== undefined ? aiSym.rsi.toFixed(1) : (regime === 'Trending' ? '54.2' : '48.6');
+
+    // OBI Pressure Meter
+    const obi = aiSym.obi !== undefined ? aiSym.obi : 0.0;
+    const obiValEl = document.getElementById('modal-obi-val');
+    obiValEl.textContent = `OBI: ${obi >= 0 ? '+' : ''}${obi.toFixed(2)}`;
+    obiValEl.style.color = obi >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
+    const bidPct = Math.max(10, Math.min(90, 50 + (obi * 40)));
+    const askPct = 100 - bidPct;
+    document.getElementById('modal-obi-bid-bar').style.width = `${bidPct}%`;
+    document.getElementById('modal-obi-ask-bar').style.width = `${askPct}%`;
+    
+    const obiHint = document.getElementById('modal-obi-hint');
+    if (obi > 0.20) {
+        obiHint.textContent = '🟢 Fuerte soporte comprador en el libro de órdenes (Presión alcista)';
+    } else if (obi < -0.20) {
+        obiHint.textContent = '🔴 Fuerte muro vendedor en el libro de órdenes (Resistencia activa)';
+    } else {
+        obiHint.textContent = '⚪ Presión balanceada entre compradores y vendedores';
+    }
+
+    // AI Prediction Snapshot
+    const sig = (aiSym.latest_signal || 'HOLD').toUpperCase();
+    const sigEl = document.getElementById('modal-ai-signal');
+    sigEl.textContent = sig;
+    sigEl.style.color = sig === 'BUY' ? 'var(--accent-green)' : (sig === 'SELL' ? 'var(--accent-red)' : 'var(--text-secondary)');
+    document.getElementById('modal-ai-conf').textContent = `${(aiSym.latest_confidence || 0).toFixed(0)}%`;
+    document.getElementById('modal-ai-cv').textContent = `${(aiSym.cv_accuracy || 0).toFixed(1)}%`;
+
+    document.getElementById('modal-prob-tp').textContent = `${(aiSym.buy_prob || 0).toFixed(1)}%`;
+    document.getElementById('modal-prob-hold').textContent = `${(aiSym.hold_prob || 100).toFixed(1)}%`;
+    document.getElementById('modal-prob-sl').textContent = `${(aiSym.sell_prob || 0).toFixed(1)}%`;
+
+    // Active Trade Details
+    const tradeSec = document.getElementById('modal-active-trade-section');
+    if (pos) {
+        tradeSec.style.display = 'block';
+        document.getElementById('modal-trade-entry').textContent = `$${pos.entry_price.toFixed(pos.entry_price >= 100 ? 2 : 4)}`;
+        document.getElementById('modal-trade-sl').textContent = `$${pos.sl_price.toFixed(pos.sl_price >= 100 ? 2 : 4)}`;
+        const pnlCol = pos.unrealized_pnl_usd >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
+        const pnlSign = pos.unrealized_pnl_usd >= 0 ? '+' : '';
+        const pnlEl = document.getElementById('modal-trade-pnl');
+        pnlEl.textContent = `${pnlSign}$${pos.unrealized_pnl_usd.toFixed(2)} (${pnlSign}${pos.unrealized_pnl_pct.toFixed(2)}%)`;
+        pnlEl.style.color = pnlCol;
+    } else {
+        tradeSec.style.display = 'none';
+    }
+
+    // Modal Action: Open in Chart tab
+    const viewChartBtn = document.getElementById('modal-btn-view-chart');
+    if (viewChartBtn) {
+        viewChartBtn.onclick = () => {
+            closeSymbolModal();
+            switchTab('tab-market');
+            const searchInput = document.getElementById('chart-symbol-search');
+            if (searchInput) {
+                searchInput.value = cleanSym;
+                currentChartSymbol = cleanSym;
+                fetchHistoricalData(currentChartSymbol, currentChartInterval);
+            }
+        };
+    }
+
+    modal.classList.add('active');
+}
+
+function closeSymbolModal() {
+    const modal = document.getElementById('symbol-detail-modal');
+    if (modal) modal.classList.remove('active');
+}
+
+// ==============================================================================
+// TAB NAVIGATION SYSTEM
+// ==============================================================================
+function switchTab(tabId) {
+    document.querySelectorAll('.nav-tab').forEach(tab => {
+        if (tab.getAttribute('data-tab') === tabId) {
+            tab.classList.add('active');
+        } else {
+            tab.classList.remove('active');
+        }
+    });
+
+    document.querySelectorAll('.tab-pane').forEach(pane => {
+        if (pane.id === tabId) {
+            pane.classList.add('active');
+        } else {
+            pane.classList.remove('active');
+        }
+    });
+
+    // If switching to market chart tab, trigger resize so ApexCharts fits container
+    if (tabId === 'tab-market' && chartInstance) {
+        setTimeout(() => {
+            if (chartInstance && chartInstance.windowResize) {
+                chartInstance.windowResize();
+            }
+        }, 60);
+    }
+}
+
+// Nav Tab Click Listeners
+document.querySelectorAll('.nav-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        const tabId = tab.getAttribute('data-tab');
+        if (tabId) switchTab(tabId);
+    });
+});
+
+// Quick Action Jump Listeners (e.g. data-action="goto-portfolio")
+document.querySelectorAll('[data-action]').forEach(el => {
+    el.addEventListener('click', (e) => {
+        const action = el.getAttribute('data-action');
+        if (action === 'goto-portfolio') switchTab('tab-portfolio');
+        else if (action === 'goto-trades') switchTab('tab-trades');
+        else if (action === 'goto-market') switchTab('tab-market');
+        else if (action === 'goto-ai') switchTab('tab-ai');
+        else if (action === 'goto-system') switchTab('tab-system');
+    });
+});
+
+// Modal Close Listeners
+const modalCloseBtn = document.getElementById('modal-close-btn');
+if (modalCloseBtn) modalCloseBtn.addEventListener('click', closeSymbolModal);
+
+const modalBtnClose = document.getElementById('modal-btn-close');
+if (modalBtnClose) modalBtnClose.addEventListener('click', closeSymbolModal);
+
+const symbolModalOverlay = document.getElementById('symbol-detail-modal');
+if (symbolModalOverlay) {
+    symbolModalOverlay.addEventListener('click', (e) => {
+        if (e.target === symbolModalOverlay) closeSymbolModal();
+    });
+}
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeSymbolModal();
+});
+
+// System Tab Control Button Delegations
+const btnToggleBotSys = document.getElementById('btn-toggle-bot-system');
+if (btnToggleBotSys && btnToggleBot) {
+    btnToggleBotSys.addEventListener('click', () => btnToggleBot.click());
+}
+
+const btnResetOpsSys = document.getElementById('btn-reset-ops-system');
+if (btnResetOpsSys && btnResetOps) {
+    btnResetOpsSys.addEventListener('click', () => btnResetOps.click());
+}
 
 // Initial fetch and start polling interval
 fetchMetrics();

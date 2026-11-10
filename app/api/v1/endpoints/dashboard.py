@@ -610,6 +610,39 @@ async def get_dashboard_data(username: str = Depends(verify_session)) -> Dict[st
         recent_trades, closed_cycles = _link_orders_buy_sell(recent_trades, live_prices)
         recent_trades = recent_trades[:20]
 
+    # Active open positions tracked in RiskManager
+    active_positions: Dict[str, Any] = {}
+    for sym, pos_data in risk_manager.position_data.items():
+        entry_p = risk_manager.entry_prices.get(sym, 0.0)
+        curr_q = float(pos_data.get("current_qty", 0.0))
+        if entry_p > 0 and curr_q > 0:
+            cur_p = float(pos_data.get("current_price", entry_p) or entry_p)
+            unrealized_usd = (cur_p - entry_p) * curr_q
+            unrealized_pct = ((cur_p - entry_p) / entry_p) * 100.0 if entry_p > 0 else 0.0
+            active_positions[sym] = {
+                "symbol": sym,
+                "entry_price": entry_p,
+                "current_price": cur_p,
+                "quantity": curr_q,
+                "value_usd": round(cur_p * curr_q, 2),
+                "unrealized_pnl_usd": round(unrealized_usd, 4),
+                "unrealized_pnl_pct": round(unrealized_pct, 2),
+                "sl_price": round(float(pos_data.get("sl_price", 0.0)), 4),
+                "tp_hits": int(pos_data.get("tp_hits", 0)),
+                "entry_time": str(pos_data.get("entry_time", "")),
+            }
+
+    scanner_info = {
+        "enabled": getattr(settings, "ENABLE_MARKET_SCANNER", False),
+        "interval_hours": getattr(settings, "SCANNER_INTERVAL_HOURS", 2),
+        "min_volume_usd": getattr(settings, "SCANNER_MIN_VOLUME_USD", 10_000_000.0),
+        "top_n": getattr(settings, "SCANNER_TOP_N", 3),
+        "window_size": getattr(settings, "SCANNER_WINDOW_SIZE", "1h"),
+        "fee_pct": getattr(settings, "EFFECTIVE_FEE_PCT", 0.075),
+        "use_bnb": getattr(settings, "USE_BNB_FEE_DISCOUNT", True),
+        "round_trip_factor": round(getattr(settings, "ROUND_TRIP_FEE_FACTOR", 1.001501), 6),
+    }
+
     data = {
         "bot_running": bot_running,
         "daily_pnl": round(daily_pnl, 4),
@@ -622,6 +655,8 @@ async def get_dashboard_data(username: str = Depends(verify_session)) -> Dict[st
         "scanner_enabled": settings.ENABLE_MARKET_SCANNER,
         "symbol_regimes": symbol_regimes,
         "symbol_strategies": symbol_strategies,
+        "active_positions": active_positions,
+        "scanner_info": scanner_info,
         "recent_trades": recent_trades,
         "closed_cycles": closed_cycles,
         "ml_insights": ml_insights,

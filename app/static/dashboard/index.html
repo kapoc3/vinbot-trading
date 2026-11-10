@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=3">
+    <link rel="stylesheet" href="styles.css?v=4">
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 </head>
 <body>
@@ -21,7 +21,7 @@
                         <h1 id="brand-title">VinBot</h1>
                         <span class="badge" id="profile-badge" style="font-size: 0.72rem; padding: 2px 8px; border-radius: 6px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); font-weight: 600;">CORE (70%)</span>
                     </div>
-                    <p>Trading Algorítmico en Tiempo Real</p>
+                    <p>Trading Algorítmico en Tiempo Real • Binance Spot</p>
                 </div>
             </div>
             <div class="header-right">
@@ -37,260 +37,505 @@
             </div>
         </header>
 
-        <!-- Main Dashboard Cards -->
-        <section class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
-            <div class="card glass" style="border-color: rgba(16, 185, 129, 0.25);">
-                <div class="card-icon">💰</div>
-                <div class="card-content">
-                    <h3>Capital Total (Binance)</h3>
-                    <p class="metric-value positive" id="wallet-total-usd">$0.00</p>
-                    <span class="metric-subtext" id="wallet-breakdown-subtext">Cargando balance real...</span>
-                </div>
-            </div>
+        <!-- Modern Tab Navigation Bar -->
+        <nav class="dashboard-nav glass">
+            <button class="nav-tab active" data-tab="tab-overview">
+                <span class="nav-icon">📊</span>
+                <span class="nav-label">Resumen</span>
+            </button>
+            <button class="nav-tab" data-tab="tab-portfolio">
+                <span class="nav-icon">💼</span>
+                <span class="nav-label">Portafolio</span>
+                <span class="nav-pill" id="nav-portfolio-pill">$0.00</span>
+            </button>
+            <button class="nav-tab" data-tab="tab-market">
+                <span class="nav-icon">📈</span>
+                <span class="nav-label">Mercado & Gráficos</span>
+            </button>
+            <button class="nav-tab" data-tab="tab-ai">
+                <span class="nav-icon">🧠</span>
+                <span class="nav-label">Inteligencia Artificial</span>
+                <span class="nav-pill badge-ai" id="nav-ai-pill">4 Cerebros</span>
+            </button>
+            <button class="nav-tab" data-tab="tab-trades">
+                <span class="nav-icon">📜</span>
+                <span class="nav-label">Operaciones</span>
+                <span class="nav-pill" id="nav-trades-pill">0</span>
+            </button>
+            <button class="nav-tab" data-tab="tab-system">
+                <span class="nav-icon">⚙️</span>
+                <span class="nav-label">Sistema & Scanner</span>
+            </button>
+        </nav>
 
-            <div class="card glass">
-                <div class="card-icon">💵</div>
-                <div class="card-content">
-                    <h3>PnL Diario</h3>
-                    <p class="metric-value" id="daily-pnl">$0.00</p>
-                    <span class="metric-subtext" id="daily-pnl-subtext">Hoy (USDT/USDC)</span>
+        <!-- ====================================================================
+             TAB 1: RESUMEN GENERAL (OVERVIEW)
+             ==================================================================== -->
+        <div class="tab-pane active" id="tab-overview">
+            <!-- Main Dashboard Cards -->
+            <section class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
+                <div class="card glass clickable-card" data-action="goto-portfolio" style="border-color: rgba(16, 185, 129, 0.25);" title="Ver detalle de Billetera Spot">
+                    <div class="card-icon">💰</div>
+                    <div class="card-content">
+                        <h3>Capital Total (Binance)</h3>
+                        <p class="metric-value positive" id="wallet-total-usd">$0.00</p>
+                        <span class="metric-subtext" id="wallet-breakdown-subtext">Cargando balance real...</span>
+                    </div>
                 </div>
-            </div>
-            
-            <div class="card glass">
-                <div class="card-icon">📈</div>
-                <div class="card-content">
-                    <h3>PnL Acumulado</h3>
-                    <p class="metric-value" id="accumulated-pnl">$0.00</p>
-                    <span class="metric-subtext">Histórico realizado</span>
-                </div>
-            </div>
 
-            <div class="card glass">
-                <div class="card-icon">⚙️</div>
-                <div class="card-content">
-                    <h3>Modo de Estrategia</h3>
-                    <p class="metric-value" id="strategy-mode">Auto</p>
-                    <span class="metric-subtext" id="trade-allowed-status">Cargando permisos...</span>
+                <div class="card glass">
+                    <div class="card-icon">💵</div>
+                    <div class="card-content">
+                        <h3>PnL Diario (Neto)</h3>
+                        <p class="metric-value" id="daily-pnl">$0.00</p>
+                        <span class="metric-subtext" id="daily-pnl-subtext">Hoy (USDC/USDT)</span>
+                    </div>
                 </div>
-            </div>
-        </section>
+                
+                <div class="card glass clickable-card" data-action="goto-trades" title="Ver historial de operaciones">
+                    <div class="card-icon">📈</div>
+                    <div class="card-content">
+                        <h3>PnL Acumulado (Neto)</h3>
+                        <p class="metric-value" id="accumulated-pnl">$0.00</p>
+                        <span class="metric-subtext">Histórico realizado</span>
+                    </div>
+                </div>
 
-        <!-- Binance Spot Wallet & Crypto Holdings -->
-        <section class="section-container glass">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
-                <h2 style="margin-bottom: 0; border-left: 4px solid #f59e0b; padding-left: 0.75rem;">🏦 Mi Portafolio Real en Binance (Criptos y Liquidez Activa)</h2>
-                <span class="regime-tag trending" id="wallet-goal-badge">Meta $100 USDC: Calculando...</span>
-            </div>
+                <div class="card glass clickable-card" data-action="goto-system" title="Ver configuración de estrategia y scanner">
+                    <div class="card-icon">⚙️</div>
+                    <div class="card-content">
+                        <h3>Modo de Estrategia</h3>
+                        <p class="metric-value" id="strategy-mode">Auto</p>
+                        <span class="metric-subtext" id="trade-allowed-status">Cargando permisos...</span>
+                    </div>
+                </div>
+            </section>
 
-            <!-- Goal & Allocation Progress Bar -->
-            <div style="margin-bottom: 1.25rem;">
-                <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.4rem;">
-                    <span id="wallet-summary-line">Liquidez Libre (Stablecoins): $0.00 | Invertido en Cripto: $0.00</span>
-                    <span id="wallet-goal-pct-text" style="font-weight: 600; color: var(--accent-green);">0% hacia $100.00 USDC</span>
+            <!-- Active Open Positions Widget -->
+            <section class="active-positions-container glass">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                    <div style="display: flex; align-items: center; gap: 0.6rem;">
+                        <span style="font-size: 1.25rem;">🎯</span>
+                        <h3 style="font-size: 1rem; font-weight: 700; color: #ffffff;">Posiciones Abiertas en Cartera (En Vivo)</h3>
+                    </div>
+                    <span id="active-positions-count-badge" style="font-size: 0.75rem; padding: 2px 8px; border-radius: 9999px; background: rgba(16, 185, 129, 0.2); color: #34d399; font-weight: 700;">0 ACTIVAS</span>
                 </div>
-                <div style="height: 10px; width: 100%; background: rgba(255,255,255,0.06); border-radius: 6px; overflow: hidden; display: flex;" id="wallet-goal-bar">
-                    <div style="width: 0%; background: linear-gradient(90deg, #10b981, #3b82f6); transition: width 0.5s ease;"></div>
+                <div id="active-positions-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                    <div class="loading-placeholder" style="padding: 1rem; text-align: left;">Sin posiciones abiertas actualmente. El bot monitorea el mercado buscando entradas con confluencia y bajo riesgo.</div>
                 </div>
-            </div>
+            </section>
 
-            <!-- Per-Asset Holdings Grid -->
-            <div class="symbols-grid" id="wallet-assets-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));">
-                <div class="loading-placeholder">Consultando saldos reales en Binance Spot...</div>
-            </div>
-        </section>
+            <!-- Rendimiento Histórico Acumulado -->
+            <section class="section-container glass">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h2 style="margin-bottom: 0;">Métricas Clave de Desempeño</h2>
+                    <span class="regime-tag" style="background: rgba(59, 130, 246, 0.15); color: #93c5fd;">ESTADÍSTICAS EN TIEMPO REAL</span>
+                </div>
+                <div class="stats-row">
+                    <div class="stat-box">
+                        <span class="stat-label">Ganancia Total Neta</span>
+                        <span class="stat-value" id="widget-total-profit">$0.00</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">Win Rate (Acierto)</span>
+                        <span class="stat-value" id="widget-win-rate">0.0%</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">Operaciones Totales</span>
+                        <span class="stat-value" id="widget-total-trades">0</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">Ganadas / Perdidas</span>
+                        <span class="stat-value" id="widget-ratio">0 / 0</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">Max Drawdown</span>
+                        <span class="stat-value negative" id="widget-drawdown">$0.00</span>
+                    </div>
+                </div>
+            </section>
 
-        <!-- Rendimiento Histórico Acumulado -->
-        <section class="section-container glass">
-            <h2>Rendimiento Histórico Acumulado</h2>
-            <div class="stats-row">
-                <div class="stat-box">
-                    <span class="stat-label">Ganancia Total</span>
-                    <span class="stat-value" id="widget-total-profit">$0.00</span>
+            <!-- Quick Snapshot: Active Symbols -->
+            <section class="section-container glass">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+                    <h2 style="margin-bottom: 0; border-left: 4px solid var(--accent-blue); padding-left: 0.75rem;">Pares en Monitoreo (Haz clic en un par para ver su detalle)</h2>
+                    <button class="btn btn-secondary" data-action="goto-market" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;">Ver Gráficos ↗</button>
                 </div>
-                <div class="stat-box">
-                    <span class="stat-label">Win Rate (Acierto)</span>
-                    <span class="stat-value" id="widget-win-rate">0.0%</span>
+                <div class="symbols-grid" id="symbols-grid">
+                    <div class="loading-placeholder">Cargando información de mercado...</div>
                 </div>
-                <div class="stat-box">
-                    <span class="stat-label">Operaciones Totales</span>
-                    <span class="stat-value" id="widget-total-trades">0</span>
-                </div>
-                <div class="stat-box">
-                    <span class="stat-label">Ganadas / Perdidas</span>
-                    <span class="stat-value" id="widget-ratio">0 / 0</span>
-                </div>
-                <div class="stat-box">
-                    <span class="stat-label">Max Drawdown</span>
-                    <span class="stat-value negative" id="widget-drawdown">$0.00</span>
-                </div>
-            </div>
-        </section>
+            </section>
+        </div>
 
-        <!-- Symbols State and Regime -->
-        <section class="section-container glass">
-            <h2>Estado de Pares y Regímenes de Mercado</h2>
-            <div class="symbols-grid" id="symbols-grid">
-                <!-- Dynamic symbols injected here -->
-                <div class="loading-placeholder">Cargando información de mercado...</div>
-            </div>
-        </section>
+        <!-- ====================================================================
+             TAB 2: PORTAFOLIO BINANCE SPOT
+             ==================================================================== -->
+        <div class="tab-pane" id="tab-portfolio">
+            <section class="section-container glass">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+                    <h2 style="margin-bottom: 0; border-left: 4px solid #f59e0b; padding-left: 0.75rem;">🏦 Mi Portafolio Real en Binance (Criptos y Liquidez Activa)</h2>
+                    <span class="regime-tag trending" id="wallet-goal-badge">Meta $100 USDC: Calculando...</span>
+                </div>
 
-        <!-- Local AI & Microstructure Analytics -->
-        <section class="section-container glass">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
-                <h2 style="margin-bottom: 0; border-left: 4px solid #10b981; padding-left: 0.75rem;">🧠 Inteligencia Artificial Cuádruple (Kronos Foundation + Ensemble + OBI)</h2>
-                <div style="display: flex; gap: 0.5rem; align-items: center;">
-                    <span class="regime-tag" style="background: rgba(147, 51, 234, 0.2); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.4);">KRONOS-MINI 4.1M</span>
-                    <span class="regime-tag trending" id="ai-engine-badge">ENSEMBLE ACTIVO</span>
+                <!-- Goal & Allocation Progress Bar -->
+                <div style="margin-bottom: 1.5rem; background: rgba(255,255,255,0.02); padding: 1.25rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06);">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.6rem; flex-wrap: wrap; gap: 0.5rem;">
+                        <span id="wallet-summary-line" style="font-weight: 600;">Liquidez Libre (Stablecoins): $0.00 | Invertido en Cripto: $0.00</span>
+                        <span id="wallet-goal-pct-text" style="font-weight: 700; color: var(--accent-green);">0% hacia $100.00 USDC</span>
+                    </div>
+                    <div style="height: 12px; width: 100%; background: rgba(255,255,255,0.06); border-radius: 6px; overflow: hidden; display: flex;" id="wallet-goal-bar">
+                        <div style="width: 0%; background: linear-gradient(90deg, #10b981, #3b82f6); transition: width 0.5s ease;"></div>
+                    </div>
                 </div>
-            </div>
 
-            <!-- AI Accuracy KPI Row -->
-            <div class="stats-row" style="margin-bottom: 1.5rem;">
-                <div class="stat-box">
-                    <span class="stat-label">Modelos Entrenados (1m)</span>
-                    <span class="stat-value" id="ai-models-count">0</span>
-                    <span class="metric-subtext">HistGB + RF + Kronos Mini</span>
+                <!-- Per-Asset Holdings Grid -->
+                <div class="symbols-grid" id="wallet-assets-grid" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));">
+                    <div class="loading-placeholder">Consultando saldos reales en Binance Spot...</div>
                 </div>
-                <div class="stat-box">
-                    <span class="stat-label">Precisión Walk-Forward (CV)</span>
-                    <span class="stat-value positive" id="ai-cv-accuracy">0.0%</span>
-                    <span class="metric-subtext">Validación sin fuga de datos</span>
-                </div>
-                <div class="stat-box">
-                    <span class="stat-label">Acierto en Vivo (Auditoría Real)</span>
-                    <span class="stat-value" id="ai-live-accuracy">Evaluando...</span>
-                    <span class="metric-subtext" id="ai-live-evaluated-sub">0 predicciones verificadas</span>
-                </div>
-                <div class="stat-box">
-                    <span class="stat-label">Compras Peligrosas Vetadas</span>
-                    <span class="stat-value positive" id="ai-vetoes-count">0</span>
-                    <span class="metric-subtext" id="ai-vetoes-saved-sub">Stop-Loss evitados por IA/OBI</span>
-                </div>
-            </div>
+            </section>
+        </div>
 
-            <!-- 4th Brain Kronos Highlight Banner -->
-            <div style="background: linear-gradient(90deg, rgba(147, 51, 234, 0.12) 0%, rgba(59, 130, 246, 0.08) 100%); border: 1px solid rgba(147, 51, 234, 0.3); border-radius: 8px; padding: 0.85rem 1.25rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
-                <div style="display: flex; align-items: center; gap: 0.75rem;">
-                    <span style="font-size: 1.5rem;">🔮</span>
+        <!-- ====================================================================
+             TAB 3: MERCADO & GRÁFICOS INTERACTIVOS
+             ==================================================================== -->
+        <div class="tab-pane" id="tab-market">
+            <section class="section-container glass">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
                     <div>
-                        <div style="font-weight: 700; font-size: 0.95rem; color: #e9d5ff;">4to Cerebro Operativo: Financial Foundation Model (Kronos-mini)</div>
-                        <div style="font-size: 0.8rem; color: var(--text-secondary);">Pre-entrenado en 12.000 millones de velas japonesas (K-lines) de 45 exchanges mundiales para anticipar rupturas y proteger capital.</div>
+                        <h2 style="margin-bottom: 0.2rem; border-left: 4px solid var(--accent-purple); padding-left: 0.75rem;">Historial de Precios en Vivo</h2>
+                        <span style="font-size: 0.8rem; color: var(--text-secondary); padding-left: 0.75rem;">Gráfico interactivo de Binance API con velas y área</span>
+                    </div>
+                    <div class="chart-controls" style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                        <div style="position: relative;">
+                            <input type="text" id="chart-symbol-search" class="chart-input" placeholder="Buscar par (ej: SOLUSDC)" style="width: 180px;">
+                        </div>
+                        <select id="chart-interval-select" class="chart-select">
+                            <option value="1m">1m</option>
+                            <option value="5m">5m</option>
+                            <option value="15m">15m</option>
+                            <option value="1h" selected>1h</option>
+                            <option value="4h">4h</option>
+                            <option value="1d">1d</option>
+                        </select>
+                        <div class="chart-type-selector" style="display: flex; gap: 0.35rem;">
+                            <button class="btn btn-chart-type active" id="btn-chart-area" title="Gráfico de Área" style="padding: 0.4rem 0.65rem; font-size: 0.9rem;">📉</button>
+                            <button class="btn btn-chart-type" id="btn-chart-candle" title="Gráfico de Velas" style="padding: 0.4rem 0.65rem; font-size: 0.9rem;">🕯️</button>
+                        </div>
                     </div>
                 </div>
-                <div id="kronos-status-pill" style="font-size: 0.8rem; font-weight: 700; color: #a855f7; background: rgba(147, 51, 234, 0.2); padding: 0.35rem 0.75rem; border-radius: 9999px; border: 1px solid rgba(147, 51, 234, 0.4);">
-                    ⚡ Sincronizado en tiempo real (1m)
-                </div>
-            </div>
-
-            <!-- Per-Symbol AI Cards -->
-            <div class="symbols-grid" id="ai-symbols-grid" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin-bottom: 1.5rem;">
-                <div class="loading-placeholder">Cargando telemetría de modelos locales...</div>
-            </div>
-
-            <!-- Live AI Decision Audit Table -->
-            <h3 style="font-size: 1rem; color: var(--text-secondary); margin-bottom: 0.75rem; font-weight: 600;">📋 Auditoría en Vivo de Decisiones de la IA (Verificación contra el Mercado)</h3>
-            <div class="table-container">
-                <table class="trades-table">
-                    <thead>
-                        <tr>
-                            <th>Hora (UTC)</th>
-                            <th>Par</th>
-                            <th>Precio</th>
-                            <th>Señal IA (Conf.)</th>
-                            <th>P(Take Profit) vs P(Stop Loss)</th>
-                            <th>Order Book (OBI)</th>
-                            <th>Veredicto Real (10m)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="ai-decisions-tbody">
-                        <tr>
-                            <td colspan="7" class="loading-placeholder">Recopilando predicciones en vivo...</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
-
-        <!-- Historical Chart Module -->
-        <section class="section-container glass">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
-                <h2 style="margin-bottom: 0; border-left: 4px solid var(--accent-purple); padding-left: 0.75rem;">Historial de Precios (Binance API)</h2>
-                <div class="chart-controls" style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-                    <div style="position: relative;">
-                        <input type="text" id="chart-symbol-search" class="chart-input" placeholder="Buscar par (ej: SOLUSDT)" style="width: 180px;">
-                    </div>
-                    <select id="chart-interval-select" class="chart-select">
-                        <option value="1m">1m</option>
-                        <option value="5m">5m</option>
-                        <option value="15m">15m</option>
-                        <option value="1h" selected>1h</option>
-                        <option value="4h">4h</option>
-                        <option value="1d">1d</option>
-                    </select>
-                    <div class="chart-type-selector" style="display: flex; gap: 0.35rem;">
-                        <button class="btn btn-chart-type active" id="btn-chart-area" title="Gráfico de Área" style="padding: 0.4rem 0.65rem; font-size: 0.9rem;">📉</button>
-                        <button class="btn btn-chart-type" id="btn-chart-candle" title="Gráfico de Velas" style="padding: 0.4rem 0.65rem; font-size: 0.9rem;">🕯️</button>
+                <div id="chart-container" style="min-height: 420px; width: 100%; position: relative;">
+                    <div id="historical-chart"></div>
+                    <div id="chart-loading-overlay" class="chart-overlay">
+                        <span class="loading-spinner"></span>
+                        <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-secondary);">Cargando gráfico...</span>
                     </div>
                 </div>
+            </section>
+        </div>
+
+        <!-- ====================================================================
+             TAB 4: INTELIGENCIA ARTIFICIAL & MODELOS LOCALES
+             ==================================================================== -->
+        <div class="tab-pane" id="tab-ai">
+            <section class="section-container glass">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
+                    <h2 style="margin-bottom: 0; border-left: 4px solid #10b981; padding-left: 0.75rem;">🧠 Inteligencia Artificial Cuádruple (Kronos Foundation + Ensemble + OBI)</h2>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <span class="regime-tag" style="background: rgba(147, 51, 234, 0.2); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.4);">KRONOS-MINI 4.1M</span>
+                        <span class="regime-tag trending" id="ai-engine-badge">ENSEMBLE ACTIVO</span>
+                    </div>
+                </div>
+
+                <!-- AI Accuracy KPI Row -->
+                <div class="stats-row" style="margin-bottom: 1.5rem;">
+                    <div class="stat-box">
+                        <span class="stat-label">Modelos Entrenados (1m)</span>
+                        <span class="stat-value" id="ai-models-count">0</span>
+                        <span class="metric-subtext">HistGB + RF + Kronos Mini</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">Precisión Walk-Forward (CV)</span>
+                        <span class="stat-value positive" id="ai-cv-accuracy">0.0%</span>
+                        <span class="metric-subtext">Validación sin fuga de datos</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">Acierto en Vivo (Auditoría Real)</span>
+                        <span class="stat-value" id="ai-live-accuracy">Evaluando...</span>
+                        <span class="metric-subtext" id="ai-live-evaluated-sub">0 predicciones verificadas</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">Compras Peligrosas Vetadas</span>
+                        <span class="stat-value positive" id="ai-vetoes-count">0</span>
+                        <span class="metric-subtext" id="ai-vetoes-saved-sub">Stop-Loss evitados por IA/OBI</span>
+                    </div>
+                </div>
+
+                <!-- 4th Brain Kronos Highlight Banner -->
+                <div style="background: linear-gradient(90deg, rgba(147, 51, 234, 0.12) 0%, rgba(59, 130, 246, 0.08) 100%); border: 1px solid rgba(147, 51, 234, 0.3); border-radius: 8px; padding: 0.85rem 1.25rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <span style="font-size: 1.5rem;">🔮</span>
+                        <div>
+                            <div style="font-weight: 700; font-size: 0.95rem; color: #e9d5ff;">4to Cerebro Operativo: Financial Foundation Model (Kronos-mini)</div>
+                            <div style="font-size: 0.8rem; color: var(--text-secondary);">Pre-entrenado en 12.000 millones de velas japonesas (K-lines) de 45 exchanges mundiales para anticipar rupturas y proteger capital.</div>
+                        </div>
+                    </div>
+                    <div id="kronos-status-pill" style="font-size: 0.8rem; font-weight: 700; color: #a855f7; background: rgba(147, 51, 234, 0.2); padding: 0.35rem 0.75rem; border-radius: 9999px; border: 1px solid rgba(147, 51, 234, 0.4);">
+                        ⚡ Sincronizado en tiempo real (1m)
+                    </div>
+                </div>
+
+                <!-- Per-Symbol AI Cards -->
+                <div class="symbols-grid" id="ai-symbols-grid" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin-bottom: 1.5rem;">
+                    <div class="loading-placeholder">Cargando telemetría de modelos locales...</div>
+                </div>
+
+                <!-- Live AI Decision Audit Table -->
+                <h3 style="font-size: 1rem; color: var(--text-secondary); margin-bottom: 0.75rem; font-weight: 600;">📋 Auditoría en Vivo de Decisiones de la IA (Verificación contra el Mercado)</h3>
+                <div class="table-container">
+                    <table class="trades-table">
+                        <thead>
+                            <tr>
+                                <th>Hora (UTC)</th>
+                                <th>Par</th>
+                                <th>Precio</th>
+                                <th>Señal IA (Conf.)</th>
+                                <th>P(Take Profit) vs P(Stop Loss)</th>
+                                <th>Order Book (OBI)</th>
+                                <th>Veredicto Real (10m)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ai-decisions-tbody">
+                            <tr>
+                                <td colspan="7" class="loading-placeholder">Recopilando predicciones en vivo...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <!-- ====================================================================
+             TAB 5: OPERACIONES, HISTORIAL & CICLOS CERRADOS
+             ==================================================================== -->
+        <div class="tab-pane" id="tab-trades">
+            <section class="section-container glass">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
+                    <div>
+                        <h2 style="margin-bottom: 0.2rem; border-left: 4px solid var(--accent-blue); padding-left: 0.75rem;">Historial de Operaciones y Ganancia Neta Real</h2>
+                        <span style="font-size: 0.8rem; color: var(--text-secondary); padding-left: 0.75rem;">Compra ↔ Venta con deducción exacta de comisiones de Binance</span>
+                    </div>
+                    <div class="filter-controls" style="display: flex; align-items: center; gap: 0.75rem;">
+                        <label for="filter-date" style="font-size: 0.85rem; color: var(--text-secondary); font-weight: 600;">Filtrar por Día:</label>
+                        <input type="date" id="filter-date" class="date-input">
+                        <button class="btn btn-primary" id="btn-clear-filter" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">Mostrar Todo</button>
+                    </div>
+                </div>
+
+                <!-- Closed Buy-Sell Cycles Summary -->
+                <div style="margin-bottom: 1.5rem;">
+                    <h3 style="font-size: 0.95rem; color: var(--text-secondary); margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">
+                        🔄 Ciclos Cerrados (Ventas Asociadas a sus Compras y Ganancia Neta)
+                    </h3>
+                    <div id="closed-cycles-grid" class="symbols-grid">
+                        <div class="loading-placeholder">Analizando ciclos de compra y venta...</div>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table class="trades-table">
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>ID Orden / Asociación</th>
+                                <th>Par</th>
+                                <th>Operación</th>
+                                <th>Precio Compra → Venta</th>
+                                <th>Cantidad (Valor USD)</th>
+                                <th>Ganancia Neta (PnL)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="trades-tbody">
+                            <tr>
+                                <td colspan="7" class="loading-placeholder">Esperando operaciones...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <!-- ====================================================================
+             TAB 6: SISTEMA, CONFIGURACIÓN & SCANNER
+             ==================================================================== -->
+        <div class="tab-pane" id="tab-system">
+            <section class="section-container glass">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+                    <h2 style="margin-bottom: 0; border-left: 4px solid var(--accent-yellow); padding-left: 0.75rem;">⚙️ Arquitectura del Sistema & Protección</h2>
+                    <span class="regime-tag trending" id="system-profile-pill">CORE 70%</span>
+                </div>
+
+                <div class="detail-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); margin-bottom: 1.5rem;">
+                    <!-- Core vs Satellite Card -->
+                    <div class="card glass" style="padding: 1.25rem;">
+                        <h3 style="font-size: 1rem; color: #ffffff; margin-bottom: 0.5rem;">🏛️ Perfil de Arquitectura</h3>
+                        <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem;" id="system-profile-desc">
+                            Operando en modo Core (70% Capital) en activos consolidados de bajo riesgo.
+                        </p>
+                        <div class="detail-box">
+                            <div class="detail-box-label">Capital Asignado</div>
+                            <div class="detail-box-value" id="system-capital-val">$70.00 USD</div>
+                        </div>
+                    </div>
+
+                    <!-- Market Scanner Card -->
+                    <div class="card glass" style="padding: 1.25rem;">
+                        <h3 style="font-size: 1rem; color: #ffffff; margin-bottom: 0.5rem;">🛰️ Binance Market Scanner</h3>
+                        <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem;" id="system-scanner-desc">
+                            Auto-rotación a líderes de momentum (1h rolling window) con filtro de liquidez > $10M.
+                        </p>
+                        <div class="detail-box">
+                            <div class="detail-box-label">Estado del Scanner</div>
+                            <div class="detail-box-value" id="system-scanner-status" style="color: var(--accent-green);">Inactivo (Modo Core)</div>
+                        </div>
+                    </div>
+
+                    <!-- Fee Protection Card -->
+                    <div class="card glass" style="padding: 1.25rem;">
+                        <h3 style="font-size: 1rem; color: #ffffff; margin-bottom: 0.5rem;">🛡️ Blindaje de Comisiones</h3>
+                        <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+                            Break-Even Real (BE + Fees) y Take Profit Neto para garantizar cero pérdidas por comisiones.
+                        </p>
+                        <div class="detail-box">
+                            <div class="detail-box-label">Tarifa Efectiva / Multiplicador BE</div>
+                            <div class="detail-box-value" id="system-fee-val" style="color: #60a5fa;">0.075% (1.001501x)</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 1.25rem;">
+                    <h3 style="font-size: 0.95rem; color: #ffffff; margin-bottom: 0.75rem;">Control Manual del Bot</h3>
+                    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                        Puedes pausar la ejecución de nuevas órdenes o reiniciar el contador de operaciones diarias.
+                    </p>
+                    <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                        <button class="btn btn-primary" id="btn-toggle-bot-system">Iniciar / Pausar Bot</button>
+                        <button class="btn btn-danger" id="btn-reset-ops-system">Reiniciar Contador Diario</button>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- ====================================================================
+         SYMBOL DETAIL MODAL (DETALLE DEL PAR / MONEDA)
+         ==================================================================== -->
+    <div class="modal-overlay" id="symbol-detail-modal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <span style="font-size: 1.75rem;" id="modal-symbol-icon">🪙</span>
+                    <div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <h2 style="font-size: 1.35rem; font-weight: 800; color: #ffffff;" id="modal-symbol-title">SOLUSDC</h2>
+                            <span class="regime-tag" id="modal-symbol-regime">TRENDING</span>
+                        </div>
+                        <span style="font-size: 0.8rem; color: var(--text-secondary);" id="modal-symbol-strategy">Estrategia: Breakout</span>
+                    </div>
+                </div>
+                <button class="modal-close-btn" id="modal-close-btn" title="Cerrar (Esc)">✕</button>
             </div>
-            <div id="chart-container" style="min-height: 380px; width: 100%; position: relative;">
-                <div id="historical-chart"></div>
-                <div id="chart-loading-overlay" class="chart-overlay">
-                    <span class="loading-spinner"></span>
-                    <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-secondary);">Cargando gráfico...</span>
+
+            <div class="modal-body">
+                <!-- Live Price & 24h Stats -->
+                <div class="detail-grid">
+                    <div class="detail-box">
+                        <div class="detail-box-label">Precio Actual</div>
+                        <div class="detail-box-value" id="modal-price">$0.00</div>
+                    </div>
+                    <div class="detail-box">
+                        <div class="detail-box-label">RSI Actual (14)</div>
+                        <div class="detail-box-value" id="modal-rsi">--</div>
+                    </div>
+                    <div class="detail-box">
+                        <div class="detail-box-label">Régimen Mercado</div>
+                        <div class="detail-box-value" id="modal-regime-text">--</div>
+                    </div>
+                </div>
+
+                <!-- Order Book Imbalance (OBI) Gauge -->
+                <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 1rem;">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600; margin-bottom: 0.5rem;">
+                        <span style="color: var(--accent-red);">🔴 Muro Vendedor (Asks)</span>
+                        <span id="modal-obi-val" style="color: #ffffff;">OBI: 0.00</span>
+                        <span style="color: var(--accent-green);">🟢 Soporte Comprador (Bids)</span>
+                    </div>
+                    <div class="obi-meter">
+                        <div class="obi-meter-ask" id="modal-obi-ask-bar" style="width: 50%;"></div>
+                        <div class="obi-meter-bid" id="modal-obi-bid-bar" style="width: 50%;"></div>
+                    </div>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.4rem; text-align: center;" id="modal-obi-hint">
+                        Presión balanceada en el libro de órdenes
+                    </div>
+                </div>
+
+                <!-- Local AI Signals & Probabilities -->
+                <div>
+                    <div class="detail-section-title">🧠 Inteligencia Artificial Cuádruple (Local Model + Kronos)</div>
+                    <div class="detail-grid" style="margin-bottom: 0.75rem;">
+                        <div class="detail-box">
+                            <div class="detail-box-label">Recomendación IA</div>
+                            <div class="detail-box-value" id="modal-ai-signal" style="color: var(--accent-green);">BUY</div>
+                        </div>
+                        <div class="detail-box">
+                            <div class="detail-box-label">Confianza del Modelo</div>
+                            <div class="detail-box-value" id="modal-ai-conf">0.0%</div>
+                        </div>
+                        <div class="detail-box">
+                            <div class="detail-box-label">Walk-Forward Accuracy</div>
+                            <div class="detail-box-value" id="modal-ai-cv">0.0%</div>
+                        </div>
+                    </div>
+
+                    <!-- Triple-Barrier Probabilities Bar -->
+                    <div style="display: flex; gap: 0.5rem; font-size: 0.78rem;">
+                        <span style="color: var(--accent-green);">P(TP): <strong id="modal-prob-tp">0%</strong></span>
+                        <span style="color: var(--text-secondary);">|</span>
+                        <span style="color: #a78bfa;">P(HOLD): <strong id="modal-prob-hold">0%</strong></span>
+                        <span style="color: var(--text-secondary);">|</span>
+                        <span style="color: var(--accent-red);">P(SL): <strong id="modal-prob-sl">0%</strong></span>
+                    </div>
+                </div>
+
+                <!-- Active Trade Status Section -->
+                <div id="modal-active-trade-section" style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 10px; padding: 1rem;">
+                    <div class="detail-section-title" style="color: #34d399; margin-bottom: 0.5rem;">🎯 Estado de la Posición en Curso</div>
+                    <div class="detail-grid">
+                        <div class="detail-box">
+                            <div class="detail-box-label">Precio de Entrada</div>
+                            <div class="detail-box-value" id="modal-trade-entry">$0.00</div>
+                        </div>
+                        <div class="detail-box">
+                            <div class="detail-box-label">Stop Loss (BE + Fees)</div>
+                            <div class="detail-box-value" id="modal-trade-sl" style="color: #f87171;">$0.00</div>
+                        </div>
+                        <div class="detail-box">
+                            <div class="detail-box-label">PnL No Realizado</div>
+                            <div class="detail-box-value" id="modal-trade-pnl">$0.00 (+0.0%)</div>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </section>
 
-        <!-- Recent Trades & Date Log Filter -->
-        <section class="section-container glass">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
-                <h2 style="margin-bottom: 0; border-left: 4px solid var(--accent-blue); padding-left: 0.75rem;">Historial de Operaciones y Ganancia Real (Compra ↔ Venta)</h2>
-                <div class="filter-controls" style="display: flex; align-items: center; gap: 0.75rem;">
-                    <label for="filter-date" style="font-size: 0.85rem; color: var(--text-secondary); font-weight: 600;">Filtrar por Día:</label>
-                    <input type="date" id="filter-date" class="date-input">
-                    <button class="btn btn-primary" id="btn-clear-filter" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">Mostrar Todo</button>
-                </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="modal-btn-close">Cerrar</button>
+                <button class="btn btn-primary" id="modal-btn-view-chart">📈 Abrir Gráfico Completo</button>
             </div>
-
-            <!-- Closed Buy-Sell Cycles Summary -->
-            <div style="margin-bottom: 1.5rem;">
-                <h3 style="font-size: 0.95rem; color: var(--text-secondary); margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">
-                    🔄 Ciclos Cerrados (Ventas Asociadas a sus Compras y Ganancia Real)
-                </h3>
-                <div id="closed-cycles-grid" class="symbols-grid">
-                    <div class="loading-placeholder">Analizando ciclos de compra y venta...</div>
-                </div>
-            </div>
-
-            <div class="table-container">
-                <table class="trades-table">
-                    <thead>
-                        <tr>
-                            <th>Fecha</th>
-                            <th>ID Orden / Asociación</th>
-                            <th>Par</th>
-                            <th>Operación</th>
-                            <th>Precio Compra → Venta</th>
-                            <th>Cantidad (Valor USD)</th>
-                            <th>Ganancia Real (PnL)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="trades-tbody">
-                        <tr>
-                            <td colspan="7" class="loading-placeholder">Esperando operaciones...</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
+        </div>
     </div>
 
     <!-- Floating Notification Container -->
     <div class="toast-container" id="toast-container"></div>
 
-    <script src="app.js?v=6"></script>
+    <script src="app.js?v=7"></script>
 </body>
 </html>
