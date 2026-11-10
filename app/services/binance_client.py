@@ -216,6 +216,20 @@ class BinanceClient:
             raise last_error
         raise RuntimeError(f"Failed request to {endpoint}")
 
+    async def get_tickers(self, window_size: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Fetch rolling ticker statistics for all symbols.
+        If window_size is provided (e.g. '1h', '4h'), queries /api/v3/ticker?windowSize=...
+        Otherwise defaults to 24hr statistics via /api/v3/ticker/24hr.
+        """
+        if window_size and window_size not in ("24h", "24hr"):
+            data = await self.request("GET", "/api/v3/ticker", params={"windowSize": window_size}, signed=False)
+        else:
+            data = await self.request("GET", "/api/v3/ticker/24hr", signed=False)
+        if isinstance(data, list):
+            return data
+        return [data] if data else []
+
     async def get_exchange_info(self, symbol: str) -> Dict[str, Any]:
         """Fetch and cache LOT_SIZE for a symbol."""
         if symbol not in self.exchange_info:

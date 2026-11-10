@@ -130,3 +130,15 @@ binance_proxy_failovers_total = Counter(
     "vinbot_binance_proxy_failovers_total",
     "Total number of automatic static proxy failover rotations"
 )
+
+# Market Scanner Metrics
+vinbot_scanner_last_run_timestamp = Gauge(
+    "vinbot_scanner_last_run_timestamp",
+    "Unix timestamp of the last market scanner rotation run"
+)
+
+vinbot_scanner_hot_symbols_count = Gauge(
+    "vinbot_scanner_hot_symbols_count",
+    "Number of active symbols selected by the hot market scanner"
+)
+

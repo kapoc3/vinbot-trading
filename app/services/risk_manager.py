@@ -114,6 +114,17 @@ class RiskManager:
         await persistence.set_state(f"{symbol.lower()}_pos_meta", {})
         await persistence.set_state(f"{symbol.lower()}_trailing_tp", {})
 
+    def is_position_open(self, symbol: str) -> bool:
+        """Return True if an active position is currently held for symbol."""
+        entry_price = self.entry_prices.get(symbol, 0.0)
+        pos_data = self.position_data.get(symbol, {})
+        current_qty = float(pos_data.get("current_qty", 0.0))
+        return (entry_price > 0.0) or (current_qty > 0.0)
+
+    def get_open_position_symbols(self) -> List[str]:
+        """Return list of symbols with active positions that must not be rotated out."""
+        return [s for s in list(self.entry_prices.keys()) if self.is_position_open(s)]
+
     async def update_partial_execution(self, symbol: str, executed_qty: float):
         """Update state after a partial sell."""
         if symbol in self.position_data:

@@ -1,7 +1,8 @@
 import asyncio
 import logging
 import os
-from typing import Dict, Any
+import time
+from typing import Dict, Any, List
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
@@ -14,10 +15,15 @@ from app.core.database import db
 from app.services.risk_manager import risk_manager
 from app.services.notifications import notification_service
 from app.core.observability import setup_observability
-from app.core.metrics import trading_rsi
+from app.core.metrics import (
+    trading_rsi,
+    vinbot_scanner_last_run_timestamp,
+    vinbot_scanner_hot_symbols_count,
+)
 from app.services.trading_engine import trading_engine
 from app.services.indicators import get_symbol_data
 from app.services.strategy_factory import current_strategy as rsi_strategy, strategy_manager
+from app.services.market_scanner import market_scanner
 
 settings = get_settings()
 
@@ -429,7 +435,7 @@ async def background_ml_retrain_task():
         try:
             await asyncio.sleep(interval_sec)
             if settings.ML_ENABLED and settings.ML_AUTO_TRAIN_ENABLED:
-                symbols = [s.strip() for s in settings.TRADING_SYMBOLS.split(",") if s.strip()]
+                symbols = list(active_trading_symbols) if active_trading_symbols else [s.strip() for s in settings.TRADING_SYMBOLS.split(",") if s.strip()]
                 for symbol in symbols:
                     await auto_train_symbol_model(symbol)
         except asyncio.CancelledError:
@@ -438,14 +444,198 @@ async def background_ml_retrain_task():
             logger.error(f"Error in background_ml_retrain_task: {e}")
 
 
+active_stream_tasks: Dict[str, asyncio.Task] = {}
+active_trading_symbols: List[str] = []
+
+
+async def warm_up_symbol(symbol: str):
+    """Warm up indicators, multi-tf, ML ensemble, and load state for a symbol."""
+    logger.info(f"Warming up {symbol}...")
+    if settings.MULTI_TF_ENABLED:
+        try:
+            from app.services.multi_timeframe import multi_tf_manager
+            multi_tf_manager.register_symbol(symbol)
+        except Exception as e:
+            logger.debug(f"Multi-TF register error for {symbol}: {e}")
+
+    await rsi_strategy.load_initial_state([symbol])
+    await risk_manager.load_initial_state([symbol])
+
+    historical_klines = await market_service.get_historical_klines(symbol, "1m", limit=100)
+    symbol_data = get_symbol_data(symbol)
+    for k in historical_klines:
+        k_dict = {
+            "t": int(k[0]),
+            "o": float(k[1]),
+            "h": float(k[2]),
+            "l": float(k[3]),
+            "c": float(k[4]),
+            "v": float(k[5]),
+            "q": float(k[7]) if len(k) > 7 else 0.0,
+        }
+        symbol_data.add_kline(k_dict)
+        if settings.MULTI_TF_ENABLED:
+            try:
+                from app.services.multi_timeframe import multi_tf_manager
+                multi_tf_manager.add_kline(symbol, "1m", k_dict)
+            except Exception:
+                pass
+
+    if settings.MULTI_TF_ENABLED:
+        try:
+            from app.services.multi_timeframe import multi_tf_manager
+            for higher_tf in ("15m", "1h"):
+                if higher_tf in multi_tf_manager.timeframes:
+                    htf_klines = await market_service.get_historical_klines(symbol, higher_tf, limit=60)
+                    for hk in htf_klines:
+                        multi_tf_manager.add_kline(
+                            symbol, higher_tf, {"c": hk[4], "h": hk[2], "l": hk[3], "v": hk[5]}
+                        )
+            logger.info(
+                f"Multi-TF warm-up complete for {symbol}: "
+                f"15m={multi_tf_manager.get_trend_direction(symbol, '15m').value}, "
+                f"1h={multi_tf_manager.get_trend_direction(symbol, '1h').value}"
+            )
+        except Exception as e:
+            logger.warning(f"Multi-TF warm-up warning for {symbol}: {e}")
+
+    logger.info(f"Warm-up complete for {symbol}. RSI: {symbol_data.get_rsi()}")
+    await auto_train_symbol_model(symbol)
+    if settings.ML_ENABLED and len(symbol_data.closes) >= 50:
+        try:
+            from app.services.ml.feature_engineering import extract_features
+            from app.services.ml.predictor import ml_predictor
+            from app.core.metrics import trading_orderbook_imbalance
+            obi_init = await binance_client.get_order_book_imbalance(symbol, limit=20)
+            trading_orderbook_imbalance.labels(symbol=symbol).set(obi_init)
+            closes_list = list(symbol_data.closes)
+            highs_list = list(symbol_data.highs)
+            lows_list = list(symbol_data.lows)
+            vols_list = list(symbol_data.volumes)
+            start_idx = max(50, len(closes_list) - 22)
+            for idx in range(start_idx, len(closes_list) + 1):
+                window_klines = [
+                    {"c": closes_list[j], "h": highs_list[j], "l": lows_list[j], "v": vols_list[j]}
+                    for j in range(idx - 50, idx)
+                ]
+                w_feats = extract_features(window_klines)
+                if w_feats:
+                    ml_predictor.record_and_verify_candle(
+                        symbol=symbol,
+                        close_price=closes_list[idx - 1],
+                        high_price=highs_list[idx - 1],
+                        low_price=lows_list[idx - 1],
+                        features=w_feats,
+                        obi=obi_init,
+                    )
+        except Exception as e:
+            logger.debug(f"Initial ML telemetry error for {symbol}: {e}")
+
+
+async def subscribe_symbol(symbol: str):
+    """Warm up and start live websocket streaming for a symbol."""
+    clean_sym = symbol.strip().upper()
+    if clean_sym in active_stream_tasks and not active_stream_tasks[clean_sym].done():
+        logger.debug(f"Symbol {clean_sym} already actively streamed.")
+        return
+    await warm_up_symbol(clean_sym)
+    task = asyncio.create_task(market_service.stream_klines(clean_sym, "1m", dummy_strategy_callback))
+    active_stream_tasks[clean_sym] = task
+    if clean_sym not in active_trading_symbols:
+        active_trading_symbols.append(clean_sym)
+    logger.info(f"Subscribed and started streaming for {clean_sym}")
+
+
+async def unsubscribe_symbol(symbol: str) -> bool:
+    """Safely unsubscribe and stop streaming for a symbol, strictly respecting position locking."""
+    clean_sym = symbol.strip().upper()
+    if risk_manager.is_position_open(clean_sym):
+        logger.warning(f"SCANNER | Cannot unsubscribe {clean_sym}: Active position is open!")
+        return False
+    if clean_sym in active_stream_tasks:
+        task = active_stream_tasks.pop(clean_sym)
+        task.cancel()
+    if clean_sym in active_trading_symbols:
+        active_trading_symbols.remove(clean_sym)
+    logger.info(f"Unsubscribed and stopped streaming for {clean_sym}")
+    return True
+
+
+async def background_market_scanner_task():
+    """Periodic task to scan hot momentum symbols and dynamically rotate satellite bot portfolio."""
+    if not settings.ENABLE_MARKET_SCANNER:
+        return
+    # Wait for initial bot startup and warm-up
+    await asyncio.sleep(15)
+    interval_sec = max(300, settings.SCANNER_INTERVAL_HOURS * 3600)
+    while True:
+        try:
+            vinbot_scanner_last_run_timestamp.set(time.time())
+            locked_symbols = risk_manager.get_open_position_symbols()
+            quote_asset = "USDC" if any("USDC" in s for s in active_trading_symbols) else "USDT"
+
+            top_candidates = await market_scanner.scan_hot_markets(
+                quote_asset=quote_asset,
+                top_n=settings.SCANNER_TOP_N,
+                min_volume=settings.SCANNER_MIN_VOLUME_USD,
+                window_size=settings.SCANNER_WINDOW_SIZE,
+            )
+
+            # Benchmark symbol (e.g. BTCUSDC) should remain tracked if filter enabled
+            benchmark_symbol = "BTCUSDC" if quote_asset == "USDC" else "BTCUSDT"
+            effective_locked = list(locked_symbols)
+            if (settings.ENABLE_BTC_DIRECTIONAL_FILTER or settings.ENABLE_RELATIVE_STRENGTH_FILTER) and benchmark_symbol in active_trading_symbols:
+                if benchmark_symbol not in effective_locked:
+                    effective_locked.append(benchmark_symbol)
+
+            plan = market_scanner.filter_rotation_symbols(
+                current_symbols=list(active_trading_symbols),
+                scanned_candidates=top_candidates,
+                locked_symbols=effective_locked,
+                max_symbols=settings.SCANNER_TOP_N + (1 if benchmark_symbol in effective_locked else 0),
+            )
+
+            to_add = plan["to_add"]
+            to_remove = plan["to_remove"]
+
+            if to_add or to_remove:
+                logger.info(
+                    f"SCANNER | Executing rotation: Add={to_add}, Remove={to_remove}, "
+                    f"Locked={locked_symbols}"
+                )
+                for sym in to_remove:
+                    await unsubscribe_symbol(sym)
+                for sym in to_add:
+                    await subscribe_symbol(sym)
+
+                vinbot_scanner_hot_symbols_count.set(len(active_trading_symbols))
+                msg = (
+                    f"🛰️ *VinBot Hot Scanner | Rotación Ejecutada*\n"
+                    f"• *Activos:* `{', '.join(active_trading_symbols)}`\n"
+                    f"• *Nuevos:* `{', '.join(to_add) if to_add else 'Ninguno'}`\n"
+                    f"• *Removidos:* `{', '.join(to_remove) if to_remove else 'Ninguno'}`\n"
+                    f"• *Lock (Trade Abierto):* `{', '.join(locked_symbols) if locked_symbols else 'Ninguno'}`"
+                )
+                await notification_service.notify_status(msg, silent=False)
+            else:
+                logger.info(f"SCANNER | No rotation required. Active universe: {active_trading_symbols}")
+                vinbot_scanner_hot_symbols_count.set(len(active_trading_symbols))
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"SCANNER | Error in background_market_scanner_task: {e}")
+
+        await asyncio.sleep(interval_sec)
+
+
 async def run_trading_bot():
     """Background task for the trading engine initialization and symbol loop."""
     logger.info("Starting Trading Bot background loop...")
     await binance_client.sync_time()
     
-    symbols = settings.TRADING_SYMBOLS.split(",")
-    # Initialize Benchmark Symbol (usually BTC pair) for filters
-    benchmark_symbol = "BTCUSDT" # Default
+    symbols = [s.strip().upper() for s in settings.TRADING_SYMBOLS.split(",") if s.strip()]
+    benchmark_symbol = "BTCUSDT"
     if any("USDC" in s for s in symbols):
         benchmark_symbol = "BTCUSDC"
         
@@ -454,97 +644,12 @@ async def run_trading_bot():
             logger.info(f"Initializing {benchmark_symbol} for directional/relative strength filters...")
             symbols.append(benchmark_symbol)
 
-    # Multi-Timeframe Analysis Setup
-    if settings.MULTI_TF_ENABLED:
-        from app.services.multi_timeframe import multi_tf_manager
-        for symbol in symbols:
-            multi_tf_manager.register_symbol(symbol)
-        logger.info(f"Multi-TF analysis enabled for: {symbols}")
-
-    # Load initial states for recovery
-    await rsi_strategy.load_initial_state(symbols)
-    await risk_manager.load_initial_state(symbols)
-    
-    # Warm-up historical data
     for symbol in symbols:
-        logger.info(f"Warming up {symbol}...")
-        historical_klines = await market_service.get_historical_klines(symbol, "1m", limit=100)
-        symbol_data = get_symbol_data(symbol)
-        for k in historical_klines:
-            # Kline arrays in Binance are [open_time, o, h, l, c, v, close_time, quote_volume, ...]
-            k_dict = {
-                "t": int(k[0]),
-                "o": float(k[1]),
-                "h": float(k[2]),
-                "l": float(k[3]),
-                "c": float(k[4]),
-                "v": float(k[5]),
-                "q": float(k[7]) if len(k) > 7 else 0.0,
-            }
-            symbol_data.add_kline(k_dict)
-            if settings.MULTI_TF_ENABLED:
-                try:
-                    from app.services.multi_timeframe import multi_tf_manager
-                    multi_tf_manager.add_kline(symbol, "1m", k_dict)
-                except Exception:
-                    pass
+        await subscribe_symbol(symbol)
 
-        if settings.MULTI_TF_ENABLED:
-            try:
-                from app.services.multi_timeframe import multi_tf_manager
-                for higher_tf in ("15m", "1h"):
-                    if higher_tf in multi_tf_manager.timeframes:
-                        htf_klines = await market_service.get_historical_klines(symbol, higher_tf, limit=60)
-                        for hk in htf_klines:
-                            multi_tf_manager.add_kline(
-                                symbol, higher_tf, {"c": hk[4], "h": hk[2], "l": hk[3], "v": hk[5]}
-                            )
-                logger.info(
-                    f"Multi-TF warm-up complete for {symbol}: "
-                    f"15m={multi_tf_manager.get_trend_direction(symbol, '15m').value}, "
-                    f"1h={multi_tf_manager.get_trend_direction(symbol, '1h').value}"
-                )
-            except Exception as e:
-                logger.warning(f"Multi-TF warm-up warning for {symbol}: {e}")
+    while True:
+        await asyncio.sleep(1)
 
-        logger.info(f"Warm-up complete for {symbol}. RSI: {symbol_data.get_rsi()}")
-        await auto_train_symbol_model(symbol)
-        if settings.ML_ENABLED and len(symbol_data.closes) >= 50:
-            try:
-                from app.services.ml.feature_engineering import extract_features
-                from app.services.ml.predictor import ml_predictor
-                from app.core.metrics import trading_orderbook_imbalance
-                obi_init = await binance_client.get_order_book_imbalance(symbol, limit=20)
-                trading_orderbook_imbalance.labels(symbol=symbol).set(obi_init)
-                # Replay the last 20 warm-up candles through the auditor so live accuracy is populated immediately
-                closes_list = list(symbol_data.closes)
-                highs_list = list(symbol_data.highs)
-                lows_list = list(symbol_data.lows)
-                vols_list = list(symbol_data.volumes)
-                start_idx = max(50, len(closes_list) - 22)
-                for idx in range(start_idx, len(closes_list) + 1):
-                    window_klines = [
-                        {"c": closes_list[j], "h": highs_list[j], "l": lows_list[j], "v": vols_list[j]}
-                        for j in range(idx - 50, idx)
-                    ]
-                    w_feats = extract_features(window_klines)
-                    if w_feats:
-                        ml_predictor.record_and_verify_candle(
-                            symbol=symbol,
-                            close_price=closes_list[idx - 1],
-                            high_price=highs_list[idx - 1],
-                            low_price=lows_list[idx - 1],
-                            features=w_feats,
-                            obi=obi_init,
-                        )
-            except Exception as e:
-                logger.debug(f"Initial ML telemetry error for {symbol}: {e}")
-
-    tasks = []
-    for symbol in symbols:
-        tasks.append(market_service.stream_klines(symbol, "1m", dummy_strategy_callback))
-    
-    await asyncio.gather(*tasks)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -557,6 +662,7 @@ async def lifespan(app: FastAPI):
     report_task = asyncio.create_task(background_report_task())
     metrics_task = asyncio.create_task(background_metrics_task())
     ml_retrain_task = asyncio.create_task(background_ml_retrain_task())
+    scanner_task = asyncio.create_task(background_market_scanner_task())
     yield
     # Shutdown
     logger.info("Application shutting down...")
@@ -566,6 +672,10 @@ async def lifespan(app: FastAPI):
     report_task.cancel()
     metrics_task.cancel()
     ml_retrain_task.cancel()
+    scanner_task.cancel()
+    for sym_task in list(active_stream_tasks.values()):
+        sym_task.cancel()
+    active_stream_tasks.clear()
     await binance_client.close()
     await db.disconnect()
 

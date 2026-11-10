@@ -85,6 +85,14 @@ class Settings(BaseSettings):
     # Dynamic Partial TP
     ENABLE_DYNAMIC_PARTIAL_TP: bool = True
 
+    # Dynamic Hot Market Scanner (Core-Satellite 70/30)
+    ENABLE_MARKET_SCANNER: bool = False
+    SCANNER_INTERVAL_HOURS: int = 2
+    SCANNER_MIN_VOLUME_USD: float = 10000000.0
+    SCANNER_TOP_N: int = 3
+    SCANNER_WINDOW_SIZE: str = "1h"
+    SCANNER_EXCLUDE_SYMBOLS: str = "BTCUSDC,ETHUSDC,SOLUSDC,BNBUSDC,BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT"
+
     # Grid Trading Bot
     ENABLE_GRID_BOT: bool = False
 

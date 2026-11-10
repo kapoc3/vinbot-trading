@@ -78,6 +78,25 @@ async function fetchFilteredTrades() {
 
 // Update DOM elements with API response
 function updateUI(data) {
+    // 0. Update Profile Badge & Brand Title
+    const profileBadgeEl = document.getElementById('profile-badge');
+    const brandTitleEl = document.getElementById('brand-title');
+    if (profileBadgeEl && data.bot_profile) {
+        profileBadgeEl.textContent = data.bot_profile;
+        if (data.scanner_enabled) {
+            profileBadgeEl.style.background = 'rgba(239, 68, 68, 0.2)';
+            profileBadgeEl.style.color = '#f87171';
+            profileBadgeEl.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+        } else {
+            profileBadgeEl.style.background = 'rgba(59, 130, 246, 0.2)';
+            profileBadgeEl.style.color = '#60a5fa';
+            profileBadgeEl.style.borderColor = 'rgba(59, 130, 246, 0.4)';
+        }
+    }
+    if (brandTitleEl && data.project_name) {
+        brandTitleEl.textContent = data.project_name;
+    }
+
     // 1. System Status & Bot Button Toggle
     isBotRunning = data.bot_running;
     if (isBotRunning) {
