@@ -12,25 +12,30 @@ class TestTrailingTakeProfit:
 
     @pytest.fixture
     def risk_manager(self):
-        with patch('app.services.risk_manager.get_settings') as mock_settings:
-            mock_settings.return_value = MagicMock(
-                ENABLE_TRAILING_TP=True,
-                TRAILING_TP_ATR_MULTIPLIER=2.0,
-                TRAILING_TP_ACTIVATION_PCT=1.5,
-                ENABLE_TIME_EXIT=False,
-                MAX_HOLD_HOURS=4,
-                TIME_EXIT_COOLDOWN_MINUTES=15,
-                ENABLE_SIGNAL_STRENGTH_EXIT=False,
-                ENABLE_DYNAMIC_PARTIAL_TP=True,
-                STOP_LOSS_PCT=2.0,
-                ALLOCATED_CAPITAL=1000,
-                RISK_PER_TRADE_PCT=1.0,
-                PARTIAL_TP_LEVELS="1.0:30,2.0:30,3.0:40"
-            )
-            from app.services.risk_manager import RiskManager
-            rm = RiskManager()
-            rm.entry_prices = {"BTCUSDT": 50000.0}
-            return rm
+        import app.services.risk_manager as rm_module
+        orig_settings = rm_module.settings
+        mock_settings = MagicMock(
+            ENABLE_TRAILING_TP=True,
+            TRAILING_TP_ATR_MULTIPLIER=2.0,
+            TRAILING_TP_ACTIVATION_PCT=1.5,
+            ENABLE_TIME_EXIT=False,
+            MAX_HOLD_HOURS=4,
+            TIME_EXIT_COOLDOWN_MINUTES=15,
+            ENABLE_SIGNAL_STRENGTH_EXIT=False,
+            ENABLE_DYNAMIC_PARTIAL_TP=True,
+            STOP_LOSS_PCT=2.0,
+            ALLOCATED_CAPITAL=1000,
+            RISK_PER_TRADE_PCT=1.0,
+            PARTIAL_TP_LEVELS="1.0:30,2.0:30,3.0:40",
+            EFFECTIVE_FEE_PCT=0.075,
+            ROUND_TRIP_FEE_FACTOR=1.001501,
+            ACCOUNT_FOR_FEES_IN_TP=True,
+        )
+        rm_module.settings = mock_settings
+        rm = rm_module.RiskManager()
+        rm.entry_prices = {"BTCUSDT": 50000.0}
+        yield rm
+        rm_module.settings = orig_settings
 
     def test_should_check_trailing_tp_enabled(self, risk_manager):
         """Test trailing TP check when enabled and position exists."""
@@ -106,6 +111,7 @@ class TestTimeBasedExit:
     def risk_manager_with_settings(self):
         """Create risk manager and patch settings directly."""
         import app.services.risk_manager as rm_module
+        orig_settings = rm_module.settings
 
         # Patch settings module-level
         mock_settings = MagicMock(
@@ -120,15 +126,20 @@ class TestTimeBasedExit:
             STOP_LOSS_PCT=2.0,
             ALLOCATED_CAPITAL=1000,
             RISK_PER_TRADE_PCT=1.0,
-            PARTIAL_TP_LEVELS="1.0:30,2.0:30,3.0:40"
+            PARTIAL_TP_LEVELS="1.0:30,2.0:30,3.0:40",
+            EFFECTIVE_FEE_PCT=0.075,
+            ROUND_TRIP_FEE_FACTOR=1.001501,
+            ACCOUNT_FOR_FEES_IN_TP=True,
         )
         rm_module.settings = mock_settings
-        return rm_module.RiskManager()
+        yield rm_module.RiskManager()
+        rm_module.settings = orig_settings
 
     @pytest.fixture
     def risk_manager_disabled(self):
         """Create risk manager with time exit disabled."""
         import app.services.risk_manager as rm_module
+        orig_settings = rm_module.settings
 
         mock_settings = MagicMock(
             ENABLE_TRAILING_TP=False,
@@ -142,10 +153,14 @@ class TestTimeBasedExit:
             STOP_LOSS_PCT=2.0,
             ALLOCATED_CAPITAL=1000,
             RISK_PER_TRADE_PCT=1.0,
-            PARTIAL_TP_LEVELS="1.0:30,2.0:30,3.0:40"
+            PARTIAL_TP_LEVELS="1.0:30,2.0:30,3.0:40",
+            EFFECTIVE_FEE_PCT=0.075,
+            ROUND_TRIP_FEE_FACTOR=1.001501,
+            ACCOUNT_FOR_FEES_IN_TP=True,
         )
         rm_module.settings = mock_settings
-        return rm_module.RiskManager()
+        yield rm_module.RiskManager()
+        rm_module.settings = orig_settings
 
     def test_should_check_time_exit_disabled(self, risk_manager_disabled):
         """Test time exit check when disabled."""
@@ -191,23 +206,28 @@ class TestSignalStrength:
 
     @pytest.fixture
     def risk_manager(self):
-        with patch('app.services.risk_manager.get_settings') as mock_settings:
-            mock_settings.return_value = MagicMock(
-                ENABLE_TRAILING_TP=False,
-                TRAILING_TP_ATR_MULTIPLIER=2.0,
-                TRAILING_TP_ACTIVATION_PCT=1.5,
-                ENABLE_TIME_EXIT=False,
-                MAX_HOLD_HOURS=4,
-                TIME_EXIT_COOLDOWN_MINUTES=15,
-                ENABLE_SIGNAL_STRENGTH_EXIT=True,
-                ENABLE_DYNAMIC_PARTIAL_TP=True,
-                STOP_LOSS_PCT=2.0,
-                ALLOCATED_CAPITAL=1000,
-                RISK_PER_TRADE_PCT=1.0,
-                PARTIAL_TP_LEVELS="1.0:30,2.0:30,3.0:40"
-            )
-            from app.services.risk_manager import RiskManager
-            return RiskManager()
+        import app.services.risk_manager as rm_module
+        orig_settings = rm_module.settings
+        mock_settings = MagicMock(
+            ENABLE_TRAILING_TP=False,
+            TRAILING_TP_ATR_MULTIPLIER=2.0,
+            TRAILING_TP_ACTIVATION_PCT=1.5,
+            ENABLE_TIME_EXIT=False,
+            MAX_HOLD_HOURS=4,
+            TIME_EXIT_COOLDOWN_MINUTES=15,
+            ENABLE_SIGNAL_STRENGTH_EXIT=True,
+            ENABLE_DYNAMIC_PARTIAL_TP=True,
+            STOP_LOSS_PCT=2.0,
+            ALLOCATED_CAPITAL=1000,
+            RISK_PER_TRADE_PCT=1.0,
+            PARTIAL_TP_LEVELS="1.0:30,2.0:30,3.0:40",
+            EFFECTIVE_FEE_PCT=0.075,
+            ROUND_TRIP_FEE_FACTOR=1.001501,
+            ACCOUNT_FOR_FEES_IN_TP=True,
+        )
+        rm_module.settings = mock_settings
+        yield rm_module.RiskManager()
+        rm_module.settings = orig_settings
 
     def test_signal_strength_strong_buy(self, risk_manager):
         """Test STRONG signal classification - deeply oversold."""
@@ -261,23 +281,28 @@ class TestDynamicPartialTP:
 
     @pytest.fixture
     def risk_manager(self):
-        with patch('app.services.risk_manager.get_settings') as mock_settings:
-            mock_settings.return_value = MagicMock(
-                ENABLE_TRAILING_TP=False,
-                TRAILING_TP_ATR_MULTIPLIER=2.0,
-                TRAILING_TP_ACTIVATION_PCT=1.5,
-                ENABLE_TIME_EXIT=False,
-                MAX_HOLD_HOURS=4,
-                TIME_EXIT_COOLDOWN_MINUTES=15,
-                ENABLE_SIGNAL_STRENGTH_EXIT=False,
-                ENABLE_DYNAMIC_PARTIAL_TP=True,
-                STOP_LOSS_PCT=2.0,
-                ALLOCATED_CAPITAL=1000,
-                RISK_PER_TRADE_PCT=1.0,
-                PARTIAL_TP_LEVELS="1.0:30,2.0:30,3.0:40"
-            )
-            from app.services.risk_manager import RiskManager
-            return RiskManager()
+        import app.services.risk_manager as rm_module
+        orig_settings = rm_module.settings
+        mock_settings = MagicMock(
+            ENABLE_TRAILING_TP=False,
+            TRAILING_TP_ATR_MULTIPLIER=2.0,
+            TRAILING_TP_ACTIVATION_PCT=1.5,
+            ENABLE_TIME_EXIT=False,
+            MAX_HOLD_HOURS=4,
+            TIME_EXIT_COOLDOWN_MINUTES=15,
+            ENABLE_SIGNAL_STRENGTH_EXIT=False,
+            ENABLE_DYNAMIC_PARTIAL_TP=True,
+            STOP_LOSS_PCT=2.0,
+            ALLOCATED_CAPITAL=1000,
+            RISK_PER_TRADE_PCT=1.0,
+            PARTIAL_TP_LEVELS="1.0:30,2.0:30,3.0:40",
+            EFFECTIVE_FEE_PCT=0.075,
+            ROUND_TRIP_FEE_FACTOR=1.001501,
+            ACCOUNT_FOR_FEES_IN_TP=True,
+        )
+        rm_module.settings = mock_settings
+        yield rm_module.RiskManager()
+        rm_module.settings = orig_settings
 
     def test_dynamic_tp_high_volatility(self, risk_manager):
         """Test dynamic TP levels for high volatility (ATR > 2%)."""
@@ -321,6 +346,7 @@ class TestRSIDivergenceExit:
     def risk_manager(self):
         """Create risk manager with signal strength exit enabled."""
         import app.services.risk_manager as rm_module
+        orig_settings = rm_module.settings
 
         mock_settings = MagicMock(
             ENABLE_TRAILING_TP=False,
@@ -334,10 +360,14 @@ class TestRSIDivergenceExit:
             STOP_LOSS_PCT=2.0,
             ALLOCATED_CAPITAL=1000,
             RISK_PER_TRADE_PCT=1.0,
-            PARTIAL_TP_LEVELS="1.0:30,2.0:30,3.0:40"
+            PARTIAL_TP_LEVELS="1.0:30,2.0:30,3.0:40",
+            EFFECTIVE_FEE_PCT=0.075,
+            ROUND_TRIP_FEE_FACTOR=1.001501,
+            ACCOUNT_FOR_FEES_IN_TP=True,
         )
         rm_module.settings = mock_settings
-        return rm_module.RiskManager()
+        yield rm_module.RiskManager()
+        rm_module.settings = orig_settings
 
     @patch('app.services.indicators.get_symbol_data')
     def test_check_divergence_exit_bearish(self, mock_get_symbol, risk_manager):

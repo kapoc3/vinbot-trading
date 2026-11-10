@@ -173,3 +173,4 @@ class MarketScanner:
 
 
 market_scanner = MarketScanner()
+

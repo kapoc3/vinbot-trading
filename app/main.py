@@ -107,18 +107,25 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
             order = await trading_engine.place_market_order(symbol, "SELL", quantity=quantity, rsi=None, notify=False)
             exec_price = _extract_order_fill_price(order, close_price)
             exec_qty = float(order.get("executedQty", quantity))
-            realized_pnl_units = (exec_price - entry_p) * exec_qty if entry_p > 0 else 0.0
+            gross_pnl, total_fees, net_pnl = risk_manager.calculate_net_trade_pnl(entry_p, exec_price, exec_qty)
+            net_pnl_pct = (net_pnl / (entry_p * exec_qty)) * 100.0 if (entry_p * exec_qty) > 0 else pnl
 
             if risk_signal == "PARTIAL_TP":
                 await risk_manager.update_partial_execution(symbol, exec_qty)
-                logger.info(f"RISK | Partial TP Order Successful: {order.get('orderId')}")
+                logger.info(
+                    f"RISK | Partial TP Order Successful: {order.get('orderId')} "
+                    f"(Net: ${net_pnl:.4f}, Gross: ${gross_pnl:.4f}, Fee: ${total_fees:.4f})"
+                )
             else:
                 await rsi_strategy.update_position(symbol, False)
                 await risk_manager.clear_entry_price(symbol)
-                logger.info(f"RISK | Exit Order Successful: {order.get('orderId')}")
+                logger.info(
+                    f"RISK | Exit Order Successful: {order.get('orderId')} "
+                    f"(Net: ${net_pnl:.4f}, Gross: ${gross_pnl:.4f}, Fee: ${total_fees:.4f})"
+                )
 
-            # 1.3 Record Realized PnL once and send unified trade closed notification
-            await risk_manager.update_daily_pnl(realized_pnl_units)
+            # 1.3 Record Realized Net PnL once and send unified trade closed notification
+            await risk_manager.update_daily_pnl(net_pnl)
             bal_info = await binance_client.get_asset_balance(quote_asset)
             current_bal = float(bal_info.get("free", 0.0))
             await notification_service.notify_trade_closed(
@@ -127,11 +134,12 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
                 entry_price=entry_p,
                 exit_price=exec_price,
                 qty=exec_qty,
-                pnl_pct=pnl,
-                pnl_usd=realized_pnl_units,
+                pnl_pct=net_pnl_pct,
+                pnl_usd=net_pnl,
                 daily_pnl=risk_manager.daily_pnl,
                 balance=current_bal,
                 quote_asset=quote_asset,
+                fee_usd=total_fees,
             )
 
         except Exception as e:
@@ -302,9 +310,9 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
                     else:
                         exec_price = _extract_order_fill_price(order, close_price)
                         exec_qty = float(order.get("executedQty", quantity))
-                        realized_pnl_units = (exec_price - entry_p_before) * exec_qty if entry_p_before > 0 else 0.0
-                        pnl_pct = ((exec_price - entry_p_before) / entry_p_before) * 100.0 if entry_p_before > 0 else 0.0
-                        await risk_manager.update_daily_pnl(realized_pnl_units)
+                        gross_pnl, total_fees, net_pnl = risk_manager.calculate_net_trade_pnl(entry_p_before, exec_price, exec_qty)
+                        net_pnl_pct = (net_pnl / (entry_p_before * exec_qty)) * 100.0 if (entry_p_before * exec_qty) > 0 else 0.0
+                        await risk_manager.update_daily_pnl(net_pnl)
                         await rsi_strategy.update_position(symbol, False)
                         await risk_manager.clear_entry_price(symbol)
 
@@ -317,11 +325,12 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
                             entry_price=entry_p_before,
                             exit_price=exec_price,
                             qty=exec_qty,
-                            pnl_pct=pnl_pct,
-                            pnl_usd=realized_pnl_units,
+                            pnl_pct=net_pnl_pct,
+                            pnl_usd=net_pnl,
                             daily_pnl=risk_manager.daily_pnl,
                             balance=current_bal,
                             quote_asset=quote_asset,
+                            fee_usd=total_fees,
                         )
                         
                     logger.info(f"EXECUTION | Order Success: {order.get('orderId')}")

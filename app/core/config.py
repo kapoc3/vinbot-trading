@@ -41,7 +41,12 @@ class Settings(BaseSettings):
     # Example: "1.0:30,2.0:30,3.0:40" -> At 1% gain sell 30%, at 2% sell 30%, at 3% sell remaining 40%
     PARTIAL_TP_LEVELS: str = "1.0:30,2.0:30,3.0:40"
     MOVE_SL_TO_BE_ON_TP1: bool = True
-    MIN_PROFIT_USD: float = 1.0  # Minimum profit in dollars to execute any sell
+    MIN_PROFIT_USD: float = 0.0  # Optional minimum profit floor in dollars to execute any sell
+    
+    # Binance Fee Deduction & Net Commission Protection
+    BINANCE_FEE_PCT: float = 0.1  # Standard Binance Spot fee (0.10%)
+    USE_BNB_FEE_DISCOUNT: bool = True  # Auto-apply 25% discount when paying fees in BNB (0.075% effective)
+    ACCOUNT_FOR_FEES_IN_TP: bool = True  # Shift TP targets to guarantee net profit after round-trip fees
     
     # BTC Directional Filter
     ENABLE_BTC_DIRECTIONAL_FILTER: bool = True
@@ -200,6 +205,20 @@ class Settings(BaseSettings):
     def USE_TESTNET(self) -> bool:
         """Alias for backward compatibility."""
         return self.BINANCE_ENV == "testnet"
+
+    @property
+    def EFFECTIVE_FEE_PCT(self) -> float:
+        """Effective single-leg fee percentage in % (0.075% with BNB discount, 0.10% without)."""
+        return round(self.BINANCE_FEE_PCT * 0.75, 6) if self.USE_BNB_FEE_DISCOUNT else self.BINANCE_FEE_PCT
+
+    @property
+    def ROUND_TRIP_FEE_FACTOR(self) -> float:
+        """
+        Exact Break-Even price multiplier ensuring zero net loss after round-trip fees:
+        Factor = (1 + fee) / (1 - fee).
+        """
+        fee_rate = self.EFFECTIVE_FEE_PCT / 100.0
+        return (1.0 + fee_rate) / (1.0 - fee_rate)
 
     @property
     def USE_MOCK_BINANCE(self) -> bool:

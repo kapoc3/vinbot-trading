@@ -125,6 +125,25 @@ class RiskManager:
         """Return list of symbols with active positions that must not be rotated out."""
         return [s for s in list(self.entry_prices.keys()) if self.is_position_open(s)]
 
+    def calculate_net_trade_pnl(
+        self, entry_price: float, exit_price: float, quantity: float
+    ) -> tuple[float, float, float]:
+        """
+        Calculate gross PnL, total round-trip commissions, and net PnL in quote asset.
+        Returns: (gross_pnl_usd, total_fee_usd, net_pnl_usd)
+        """
+        if entry_price <= 0 or quantity <= 0:
+            return 0.0, 0.0, 0.0
+        fee_rate = settings.EFFECTIVE_FEE_PCT / 100.0
+        entry_cost = entry_price * quantity
+        exit_proceeds = exit_price * quantity
+        entry_fee = entry_cost * fee_rate
+        exit_fee = exit_proceeds * fee_rate
+        total_fees = entry_fee + exit_fee
+        gross_pnl = exit_proceeds - entry_cost
+        net_pnl = gross_pnl - total_fees
+        return round(gross_pnl, 4), round(total_fees, 4), round(net_pnl, 4)
+
     async def update_partial_execution(self, symbol: str, executed_qty: float):
         """Update state after a partial sell."""
         if symbol in self.position_data:
@@ -132,10 +151,13 @@ class RiskManager:
             data["current_qty"] = float(data["current_qty"]) - float(executed_qty)
             data["tp_hits"] = int(data["tp_hits"]) + 1
             
-            # Requirement: Move SL to Break-Even on first TP
+            # Requirement: Move SL to Break-Even on first TP (accounting for round-trip fees)
             if data["tp_hits"] == 1 and settings.MOVE_SL_TO_BE_ON_TP1:
-                data["sl_price"] = float(self.entry_prices[symbol])
-                logger.info(f"RISK | TP1 hit for {symbol}. Moving SL to BE: {data['sl_price']:.2f}")
+                be_factor = settings.ROUND_TRIP_FEE_FACTOR
+                data["sl_price"] = float(self.entry_prices[symbol]) * be_factor
+                logger.info(
+                    f"RISK | TP1 hit for {symbol}. Moving SL to BE+Fees ({be_factor:.4f}x): {data['sl_price']:.4f}"
+                )
             
             await persistence.set_state(f"{symbol.lower()}_pos_meta", data)
 
@@ -152,14 +174,21 @@ class RiskManager:
             return []
 
     def check_sl_tp(self, symbol: str, current_price: float, atr: Optional[float] = None) -> Optional[Dict[str, Any]]:
-        """Check if Stop Loss, Partial Take Profit, or Final Take Profit is hit."""
+        """Check if Stop Loss, Partial Take Profit, or Final Take Profit is hit (accounting for net fees)."""
         entry_price = self.entry_prices.get(symbol)
         pos_meta = self.position_data.get(symbol)
 
         if entry_price is None or pos_meta is None or entry_price <= 0:
             return None
 
-        pnl_pct = float(((current_price - entry_price) / entry_price) * 100.0)
+        gross_pnl_pct = float(((current_price - entry_price) / entry_price) * 100.0)
+        fee_rate = settings.EFFECTIVE_FEE_PCT / 100.0
+        cost = entry_price * (1.0 + fee_rate)
+        revenue = current_price * (1.0 - fee_rate)
+        net_pnl_pct = float(((revenue - cost) / cost) * 100.0)
+
+        # Evaluate TP based on net profit if ACCOUNT_FOR_FEES_IN_TP is enabled
+        pnl_pct = net_pnl_pct if settings.ACCOUNT_FOR_FEES_IN_TP else gross_pnl_pct
 
         # 0. Update current price in position data for time exit calculation
         if symbol in self.position_data:
@@ -214,7 +243,10 @@ class RiskManager:
                 current_qty = float(pos_meta.get("current_qty", 0.0))
                 sell_qty = min(sell_qty, current_qty)
                 
-                logger.info(f"RISK | PARTIAL TP {hit_count+1} triggered for {symbol} at {current_price} (+{pnl_pct:.2f}%)")
+                logger.info(
+                    f"RISK | PARTIAL TP {hit_count+1} triggered for {symbol} at {current_price} "
+                    f"(Net: +{net_pnl_pct:.2f}%, Gross: +{gross_pnl_pct:.2f}%)"
+                )
                 return {
                     "signal": "PARTIAL_TP", 
                     "pnl": pnl_pct, 
@@ -224,7 +256,10 @@ class RiskManager:
             
         # 3. Check Final Take Profit (Legacy/Global fallback if defined higher than levels)
         if pnl_pct >= float(settings.TAKE_PROFIT_PCT):
-            logger.info(f"RISK | FINAL TAKE PROFIT reached for {symbol} at {current_price} (PnL: {pnl_pct:.2f}%)")
+            logger.info(
+                f"RISK | FINAL TAKE PROFIT reached for {symbol} at {current_price} "
+                f"(Net: +{net_pnl_pct:.2f}%, Gross: +{gross_pnl_pct:.2f}%)"
+            )
             return {"signal": "TAKE_PROFIT", "pnl": pnl_pct, "quantity": float(pos_meta.get("current_qty", 0.0)), "is_final": True}
             
         return None

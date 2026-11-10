@@ -130,6 +130,7 @@ class NotificationService:
         daily_pnl: float,
         balance: Optional[float] = None,
         quote_asset: str = "USDC",
+        fee_usd: Optional[float] = None,
     ):
         """Send a single unified notification when a position is closed (TP, SL, Trailing TP, Time Exit, or Strategy SELL)."""
         is_win = pnl_usd >= 0
@@ -145,6 +146,8 @@ class NotificationService:
         daily_sign = "+" if daily_pnl >= 0 else ""
         daily_esc = self.escape_markdown(f"{daily_sign}{daily_pnl:.2f} {quote_asset}")
 
+        fee_str = f" \\| Fee: `-${fee_usd:.3f}`" if (fee_usd is not None and fee_usd > 0) else ""
+
         progress_line = ""
         if balance is not None:
             target = settings.CAPITAL_TARGET_USDC
@@ -156,7 +159,7 @@ class NotificationService:
             f"{emoji} *POSICIÓN CERRADA \\| {symbol_esc}*\n"
             f"Motivo: `{signal_esc}`\n"
             f"Entrada: `{entry_esc}` ➔ Salida: `{exit_esc}`\n"
-            f"Resultado: *{pnl_usd_esc}* \\(`{pnl_pct_esc}`\\)\n"
+            f"Resultado Neto: *{pnl_usd_esc}* \\(`{pnl_pct_esc}`\\){fee_str}\n"
             f"PnL Hoy: `{daily_esc}`{progress_line}"
         )
         await self.send_message(msg)
