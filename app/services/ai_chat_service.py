@@ -253,13 +253,18 @@ DIRECTRICES DE RESPUESTA:
             "options": {
                 "temperature": 0.4, # Lower temperature for analytical precision
                 "top_p": 0.9,
-                "num_ctx": 4096,   # Fits within 6GB VRAM on GTX 1060
+                "num_ctx": 2048,   # Faster inference on GTX 1060 VRAM
+                "num_predict": 512, # Cap generation for fast responsive replies
             }
         }
 
         try:
             logger.info(f"AI_CHAT | Querying local Ollama ({settings.OLLAMA_MODEL}) on GTX 1060...")
-            res = await client.post(f"{base_url}/api/chat", json=payload)
+            res = await client.post(
+                f"{base_url}/api/chat",
+                json=payload,
+                timeout=httpx.Timeout(settings.OLLAMA_TIMEOUT_SECONDS, connect=10.0)
+            )
             
             if res.status_code == 200:
                 data = res.json()

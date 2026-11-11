@@ -197,7 +197,7 @@ class Settings(BaseSettings):
     ENABLE_AI_CHAT: bool = True
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "qwen2.5:7b"
-    OLLAMA_TIMEOUT_SECONDS: float = 60.0
+    OLLAMA_TIMEOUT_SECONDS: float = 120.0
  
     @property
     def BINANCE_BASE_URL(self) -> str:
