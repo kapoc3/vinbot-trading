@@ -66,6 +66,33 @@ async def _fetch_wallet_portfolio() -> Dict[str, Any]:
         "updated_at": now,
     }
 
+    # If Alpaca broker is selected, fetch from Alpaca adapter
+    if getattr(settings, "BROKER_BACKEND", "binance").lower() == "alpaca":
+        try:
+            from app.services.brokers import get_broker_adapter
+            adapter = get_broker_adapter("alpaca")
+            acc = await adapter.get_account()
+            assets = await adapter.get_wallet_balances()
+            tot_usd = acc.get("equity_usd", 0.0)
+            cash_usd = acc.get("cash_usd", 0.0)
+            invested = max(0.0, tot_usd - cash_usd)
+            wallet_data = {
+                "total_usd": tot_usd,
+                "free_stable_usd": cash_usd,
+                "locked_usd": 0.0,
+                "invested_crypto_usd": round(invested, 2),
+                "goal_usd": 100.0,
+                "goal_progress_pct": round(min(100.0, (tot_usd / 100.0) * 100.0), 1) if tot_usd > 0 else 0.0,
+                "assets": assets,
+                "updated_at": now,
+            }
+            _wallet_cache["data"] = wallet_data
+            _wallet_cache["timestamp"] = now
+            return wallet_data
+        except Exception as e:
+            logger.error(f"DASHBOARD | Error fetching Alpaca wallet portfolio: {e}")
+            return default_wallet
+
     # Skip network calls in mock mode or unit test mocks
     api_key = getattr(settings, "BINANCE_API_KEY", None)
     env_mode = getattr(settings, "BINANCE_ENV", "mock")
@@ -668,6 +695,8 @@ async def get_dashboard_data(username: str = Depends(verify_session)) -> Dict[st
         "closed_cycles": closed_cycles,
         "ml_insights": ml_insights,
         "wallet": wallet,
+        "broker": getattr(settings, "BROKER_BACKEND", "binance").lower(),
+        "broker_env": getattr(settings, "ALPACA_ENV", "paper") if getattr(settings, "BROKER_BACKEND", "binance").lower() == "alpaca" else getattr(settings, "BINANCE_ENV", "testnet"),
         "timestamp": current_time
     }
 
@@ -968,3 +997,29 @@ async def get_ai_chat_status(username: str = Depends(verify_session)):
     """Check local Ollama engine status and GPU model readiness."""
     from app.services.ai_chat_service import ai_chat_service
     return await ai_chat_service.check_ollama_status()
+
+
+@router.get("/broker/status")
+async def get_broker_status(username: str = Depends(verify_session)):
+    """Check active broker adapter backend, environment and account overview."""
+    try:
+        from app.services.brokers import get_broker_adapter
+        adapter = get_broker_adapter()
+        account = await adapter.get_account()
+        backend = getattr(settings, "BROKER_BACKEND", "binance").lower()
+        env_mode = getattr(settings, "ALPACA_ENV", "paper") if backend == "alpaca" else getattr(settings, "BINANCE_ENV", "testnet")
+        return {
+            "status": "success",
+            "broker": adapter.broker_name,
+            "backend": backend,
+            "environment": env_mode,
+            "account": account,
+        }
+    except Exception as e:
+        logger.error(f"DASHBOARD | Error checking broker status: {e}")
+        return {
+            "status": "error",
+            "broker": getattr(settings, "BROKER_BACKEND", "binance").lower(),
+            "message": str(e),
+        }
+

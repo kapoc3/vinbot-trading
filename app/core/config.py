@@ -198,6 +198,25 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "qwen2.5:7b"
     OLLAMA_TIMEOUT_SECONDS: float = 120.0
+
+    # Broker Selection: binance | alpaca
+    BROKER_BACKEND: str = "binance"
+
+    # Alpaca Markets Configuration (US Stocks, ETFs & Crypto Paper/Live)
+    ENABLE_ALPACA: bool = False
+    ALPACA_ENV: str = "paper"  # paper | live
+    ALPACA_API_KEY: str = ""
+    ALPACA_SECRET_KEY: str = ""
+    ALPACA_PAPER_BASE_URL: str = "https://paper-api.alpaca.markets"
+    ALPACA_LIVE_BASE_URL: str = "https://api.alpaca.markets"
+    ALPACA_DATA_URL: str = "https://data.alpaca.markets"
+    ALPACA_TRADING_SYMBOLS: str = "SPY,QQQ,NVDA,AAPL,BTC/USD"
+    ALPACA_TIMEOUT_SECONDS: float = 15.0
+
+    @property
+    def ALPACA_BASE_URL(self) -> str:
+        return self.ALPACA_LIVE_BASE_URL if self.ALPACA_ENV == "live" else self.ALPACA_PAPER_BASE_URL
+
  
     @property
     def BINANCE_BASE_URL(self) -> str:

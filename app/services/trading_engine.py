@@ -51,6 +51,22 @@ class TradingEngine:
             else:
                 raise Exception("Failed to execute paper order")
 
+        # Route to Alpaca broker if configured
+        if getattr(settings, "BROKER_BACKEND", "binance").lower() == "alpaca":
+            from app.services.brokers import get_broker_adapter
+            adapter = get_broker_adapter("alpaca")
+            order = await adapter.place_order(symbol, side, quantity)
+            self.order_history.append(order)
+            await persistence.save_order(order, rsi=rsi)
+            if notify:
+                exec_price = float(order.get("price", current_price or 0.0) or 0.0)
+                exec_qty = float(order.get("executedQty", quantity) or quantity)
+                await notification_service.notify_order(
+                    symbol, side, exec_price, exec_qty, rsi=rsi, balance=0.0, quote_asset="USD"
+                )
+            trading_orders_total.labels(symbol=symbol, side=side).inc()
+            return order
+
         try:
             logger.info(f"Placing {side} MARKET order for {quantity} {symbol}")
             order = await binance_client.request("POST", "/v3/order", params=params, signed=True)
@@ -78,6 +94,11 @@ class TradingEngine:
 
     async def cancel_order(self, symbol: str, order_id: int) -> Dict[str, Any]:
         """Cancel an active order (Task 4.2)."""
+        if getattr(settings, "BROKER_BACKEND", "binance").lower() == "alpaca":
+            from app.services.brokers import get_broker_adapter
+            adapter = get_broker_adapter("alpaca")
+            return await adapter.cancel_order(order_id, symbol=symbol)
+
         params = {
             "symbol": symbol,
             "orderId": order_id
