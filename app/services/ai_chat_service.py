@@ -114,6 +114,13 @@ class AIChatService:
         raw_dd = stats.get("drawdown", 0.0)
         drawdown_val = float(raw_dd.get("max_drawdown", 0.0) if isinstance(raw_dd, dict) else (raw_dd or 0.0))
 
+        comm_estimate = stats.get("commission_estimate", {})
+        total_volume = float(comm_estimate.get("estimated_volume", 0.0))
+        total_commissions = float(comm_estimate.get("estimated_commissions", 0.0))
+        avg_trade_size = (total_volume / total_trades) if total_trades > 0 else 0.0
+        allocated_cap = float(getattr(settings, "ALLOCATED_CAPITAL", 70.0))
+        fixed_order_val = float(getattr(settings, "FIXED_ORDER_VALUE_USDT", 15.0))
+
         # 2. Daily metrics
         daily_pnl = getattr(risk_manager, "daily_pnl", 0.0)
         fee_pct = getattr(settings, "EFFECTIVE_FEE_PCT", 0.075)
@@ -156,9 +163,12 @@ class AIChatService:
             rows = await cursor.fetchall()
             for r in rows:
                 d = dict(r)
+                q = float(d.get('quantity', 0) or 0)
+                p = float(d.get('price', 0) or 0)
+                usd_val = q * p
                 recent_trades_summary.append(
                     f"  - {d.get('timestamp')}: {d.get('side')} {d.get('symbol')} "
-                    f"cant={d.get('quantity')} @ ${float(d.get('price', 0)):.4f}"
+                    f"cant={q} @ ${p:.4f} (${usd_val:.2f} USD)"
                 )
         except Exception:
             pass
@@ -168,7 +178,9 @@ class AIChatService:
 • PnL Neto Diario: ${daily_pnl:+.4f} USD
 • Ganancia Total Histórica: ${tot_profit:+.2f} USD | Drawdown: -${abs(drawdown_val):.2f} USD
 • Win Rate: {win_rate:.1f}% en {total_trades} operaciones ejecutadas
-• Comisión Binance Efectiva: {fee_pct}% por operación ({fee_name})
+• Volumen Total Transaccionado: ${total_volume:.2f} USD | Tamaño Promedio/Orden: ${avg_trade_size:.2f} USD
+• Comisiones Totales Pagadas: ${total_commissions:.4f} USD ({fee_pct}% por operación con {fee_name})
+• Capital Asignado: ${allocated_cap:.2f} USDC | Tamaño Orden Base Configurada: ${fixed_order_val:.2f} USD
 • Política de Stop Loss: Break-Even + Comisiones de ida y vuelta garantizadas (Factor {settings.ROUND_TRIP_FEE_FACTOR:.6f}x)
 • Estrategia Activa: {settings.TRADING_STRATEGY} | Modo Core-Satellite 70/30: {'Habilitado' if settings.ENABLE_MARKET_SCANNER else 'Deshabilitado'}
 • Posiciones Activas en Cartera:
