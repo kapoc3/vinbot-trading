@@ -69,6 +69,7 @@ def test_ai_chat_service_context_summary():
         summary = await service.build_trading_context_summary()
         assert "VINBOT REAL-TIME TRADING SNAPSHOT" in summary
         assert "PnL Neto Diario" in summary
-        assert "Comisión Binance Efectiva" in summary
+        assert "Comisiones Totales Pagadas" in summary
+        assert "Volumen Total Transaccionado" in summary
 
     asyncio.run(_run())
