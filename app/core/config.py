@@ -192,6 +192,12 @@ class Settings(BaseSettings):
     PROD_WS_URL: str = "wss://stream.binance.com:9443/ws"
     TESTNET_BASE_URL: str = "https://testnet.binance.vision"
     TESTNET_WS_URL: str = "wss://stream.testnet.binance.vision/ws"
+
+    # Local LLM Analyst Chatbot (Ollama / Qwen 2.5 on GTX 1060)
+    ENABLE_AI_CHAT: bool = True
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "qwen2.5:7b"
+    OLLAMA_TIMEOUT_SECONDS: float = 60.0
  
     @property
     def BINANCE_BASE_URL(self) -> str:

@@ -29,6 +29,10 @@ class LoginRequest(BaseModel):
 class SellPositionRequest(BaseModel):
     symbol: str
 
+class AIChatRequest(BaseModel):
+    message: str
+    history: Optional[List[Dict[str, str]]] = None
+
 # Simple in-memory cache
 _cache = {
     "data": None,
@@ -943,3 +947,24 @@ async def sell_position(payload: SellPositionRequest, username: str = Depends(ve
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al ejecutar la venta en Binance: {str(e)}"
         )
+
+
+@router.post("/ai-chat")
+async def chat_with_analyst(payload: AIChatRequest, username: str = Depends(verify_session)):
+    """Interact in natural language with the local AI Quant Analyst (Ollama / Qwen 2.5 / GTX 1060)."""
+    msg = payload.message.strip()
+    if not msg:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El mensaje no puede estar vacío."
+        )
+    from app.services.ai_chat_service import ai_chat_service
+    result = await ai_chat_service.ask_analyst(msg, payload.history)
+    return result
+
+
+@router.get("/ai-chat/status")
+async def get_ai_chat_status(username: str = Depends(verify_session)):
+    """Check local Ollama engine status and GPU model readiness."""
+    from app.services.ai_chat_service import ai_chat_service
+    return await ai_chat_service.check_ollama_status()

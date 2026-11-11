@@ -1269,6 +1269,260 @@ if (btnResetOpsSys && btnResetOps) {
     btnResetOpsSys.addEventListener('click', () => btnResetOps.click());
 }
 
+// ==============================================================================
+// AI QUANT ANALYST CHATBOT LOGIC (OLLAMA / GPU ACCELERATED)
+// ==============================================================================
+let aiChatHistory = [];
+
+function parseMarkdownToHtml(markdown) {
+    if (!markdown) return '';
+    let html = markdown
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+    // Code blocks ```lang ... ```
+    html = html.replace(/```(?:[a-zA-Z]*\n)?([\s\S]*?)```/g, (match, p1) => {
+        return `<pre><code>${p1.trim()}</code></pre>`;
+    });
+
+    // Inline code `code`
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // Headers
+    html = html.replace(/^### (.*$)/gim, '<h4 style="margin: 0.5rem 0 0.25rem; color: #93c5fd;">$1</h4>');
+    html = html.replace(/^## (.*$)/gim, '<h3 style="margin: 0.6rem 0 0.3rem; color: #bfdbfe;">$1</h3>');
+    html = html.replace(/^# (.*$)/gim, '<h2 style="margin: 0.75rem 0 0.4rem; color: #ffffff;">$1</h2>');
+
+    // Bold & Italic
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+    // Unordered lists
+    html = html.replace(/^\s*[-•]\s+(.*)$/gim, '<li>$1</li>');
+    html = html.replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>');
+    html = html.replace(/<\/ul>\s*<ul>/g, '');
+
+    // Line breaks
+    html = html.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
+
+    return html;
+}
+
+function appendChatMessage(role, htmlContent, author = null) {
+    const container = document.getElementById('chat-messages-container');
+    if (!container) return;
+
+    const isUser = role === 'user';
+    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const authorName = author || (isUser ? 'Tú (Trader)' : 'VinBot Quant Analyst');
+    const avatar = isUser ? '👤' : '🤖';
+
+    const msgEl = document.createElement('div');
+    msgEl.className = `chat-msg ${role}`;
+    msgEl.innerHTML = `
+        <div class="chat-avatar">${avatar}</div>
+        <div class="chat-bubble">
+            <div class="chat-author">${authorName} <span class="chat-time">${now}</span></div>
+            <div class="chat-content">${htmlContent}</div>
+        </div>
+    `;
+
+    container.appendChild(msgEl);
+    container.scrollTop = container.scrollHeight;
+    return msgEl;
+}
+
+async function sendChatMessage(customPromptText = null) {
+    const inputEl = document.getElementById('chat-user-input');
+    const sendBtn = document.getElementById('chat-send-btn');
+    const spinner = document.getElementById('chat-send-spinner');
+    const container = document.getElementById('chat-messages-container');
+    if (!inputEl) return;
+
+    const messageText = (customPromptText !== null ? customPromptText : inputEl.value).trim();
+    if (!messageText) return;
+
+    // Clear input and reset height
+    if (customPromptText === null) {
+        inputEl.value = '';
+        inputEl.style.height = 'auto';
+    }
+
+    // 1. Append user message
+    appendChatMessage('user', messageText.replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+
+    // 2. Add temporary typing indicator
+    const typingEl = document.createElement('div');
+    typingEl.className = 'chat-msg assistant';
+    typingEl.id = 'chat-temp-typing';
+    typingEl.innerHTML = `
+        <div class="chat-avatar">🤖</div>
+        <div class="chat-bubble">
+            <div class="chat-author">VinBot Quant Analyst <span class="chat-time">Analizando...</span></div>
+            <div class="chat-typing">
+                <span class="chat-typing-dot"></span>
+                <span class="chat-typing-dot"></span>
+                <span class="chat-typing-dot"></span>
+            </div>
+        </div>
+    `;
+    container.appendChild(typingEl);
+    container.scrollTop = container.scrollHeight;
+
+    // Disable send button while generating
+    if (sendBtn) sendBtn.disabled = true;
+    if (spinner) spinner.style.display = 'inline-block';
+
+    try {
+        const response = await fetch('/api/v1/dashboard/ai-chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                message: messageText,
+                history: aiChatHistory
+            })
+        });
+
+        if (response.status === 401) {
+            window.location.reload();
+            return;
+        }
+
+        const data = await response.json();
+        
+        // Remove typing indicator
+        if (typingEl && typingEl.parentNode) {
+            typingEl.parentNode.removeChild(typingEl);
+        }
+
+        const replyRaw = data.reply || data.detail || 'Sin respuesta del modelo.';
+        const parsedReply = parseMarkdownToHtml(replyRaw);
+
+        appendChatMessage('assistant', parsedReply);
+
+        // Update in-memory history (last 6 turns)
+        aiChatHistory.push({ role: 'user', content: messageText });
+        aiChatHistory.push({ role: 'assistant', content: replyRaw });
+        if (aiChatHistory.length > 12) {
+            aiChatHistory = aiChatHistory.slice(-12);
+        }
+
+    } catch (err) {
+        console.error('Error contacting AI Analyst:', err);
+        if (typingEl && typingEl.parentNode) {
+            typingEl.parentNode.removeChild(typingEl);
+        }
+        appendChatMessage(
+            'assistant',
+            `<span style="color: #f87171;">⚠️ Error de conexión con el servidor de IA local: ${err.message}</span>`
+        );
+    } finally {
+        if (sendBtn) sendBtn.disabled = false;
+        if (spinner) spinner.style.display = 'none';
+        if (inputEl) inputEl.focus();
+    }
+}
+
+// Check Ollama Local Engine Status
+async function checkAIChatEngineStatus() {
+    const badgeEl = document.getElementById('chat-status-badge');
+    const infoEl = document.getElementById('chat-model-info');
+    const pillEl = document.getElementById('nav-chat-pill');
+    if (!badgeEl) return;
+
+    try {
+        const res = await fetch('/api/v1/dashboard/ai-chat/status');
+        if (res.ok) {
+            const data = await res.json();
+            if (data.online) {
+                badgeEl.textContent = data.model_available ? 'NVIDIA GPU Activa' : 'Modelo Pendiente';
+                badgeEl.className = `regime-tag ${data.model_available ? 'trending' : 'ranging'}`;
+                if (pillEl) {
+                    pillEl.textContent = data.target_model;
+                    pillEl.style.background = 'rgba(16, 185, 129, 0.25)';
+                    pillEl.style.color = '#34d399';
+                }
+                if (infoEl) {
+                    infoEl.textContent = `Modelo: ${data.target_model} (Local en Acer Predator) | ${data.message}`;
+                }
+            } else {
+                badgeEl.textContent = 'Ollama Offline';
+                badgeEl.className = 'regime-tag highvolatility';
+                if (pillEl) {
+                    pillEl.textContent = 'Offline';
+                    pillEl.style.background = 'rgba(239, 68, 68, 0.2)';
+                    pillEl.style.color = '#f87171';
+                }
+                if (infoEl) {
+                    infoEl.textContent = `Servidor Ollama no detectado. Inicia en terminal con: ollama serve`;
+                }
+            }
+        }
+    } catch (e) {
+        console.debug('Could not fetch AI chat status', e);
+    }
+}
+
+// Quick Prompt Listeners
+document.querySelectorAll('.quick-prompt-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const prompt = btn.getAttribute('data-prompt');
+        if (prompt) {
+            sendChatMessage(prompt);
+        }
+    });
+});
+
+// Clear Chat Button Listener
+const btnClearChat = document.getElementById('chat-btn-clear');
+if (btnClearChat) {
+    btnClearChat.addEventListener('click', () => {
+        aiChatHistory = [];
+        const container = document.getElementById('chat-messages-container');
+        if (container) {
+            container.innerHTML = `
+                <div class="chat-msg assistant">
+                    <div class="chat-avatar">🤖</div>
+                    <div class="chat-bubble">
+                        <div class="chat-author">VinBot Quant Analyst <span class="chat-time">Reiniciado</span></div>
+                        <div class="chat-content">
+                            Historial reiniciado. Estoy listo para responder consultas analíticas sobre tus operaciones, comisiones y estrategias en tiempo real.
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+    });
+}
+
+// Chat Textarea Enter / Auto-resize Listeners
+const chatInputTextarea = document.getElementById('chat-user-input');
+if (chatInputTextarea) {
+    chatInputTextarea.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendChatMessage();
+        }
+    });
+
+    chatInputTextarea.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+    });
+}
+
+const chatForm = document.getElementById('chat-input-form');
+if (chatForm) {
+    chatForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        sendChatMessage();
+    });
+}
+
+// Initial check for Ollama status
+checkAIChatEngineStatus();
+
 // Initial fetch and start polling interval
 fetchMetrics();
 setInterval(fetchMetrics, 10000);

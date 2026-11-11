@@ -66,6 +66,11 @@
                 <span class="nav-icon">⚙️</span>
                 <span class="nav-label">Sistema & Scanner</span>
             </button>
+            <button class="nav-tab" data-tab="tab-chat">
+                <span class="nav-icon">💬</span>
+                <span class="nav-label">IA Asesor</span>
+                <span class="nav-pill" id="nav-chat-pill" style="background: rgba(168, 85, 247, 0.25); color: #c084fc;">Ollama</span>
+            </button>
         </nav>
 
         <!-- ====================================================================
@@ -422,6 +427,75 @@
                         <button class="btn btn-danger" id="btn-reset-ops-system">Reiniciar Contador Diario</button>
                     </div>
                 </div>
+            </section>
+        </div>
+
+        <!-- ====================================================================
+             TAB 7: CHATBOT ANALISTA & ESTRATEGA IA (OLLAMA / GPU GTX 1060)
+             ==================================================================== -->
+        <div class="tab-pane" id="tab-chat">
+            <section class="section-container glass chat-section">
+                <!-- Chat Header -->
+                <div class="chat-header">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <span style="font-size: 1.85rem;">🤖</span>
+                        <div>
+                            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                                <h2 style="margin-bottom: 0; font-size: 1.25rem;">VinBot Quant Analyst</h2>
+                                <span class="regime-tag trending" id="chat-status-badge">NVIDIA GPU Activa</span>
+                            </div>
+                            <span style="font-size: 0.8rem; color: var(--text-secondary);" id="chat-model-info">
+                                Modelo: Qwen 2.5 (Local en Acer Predator) | Conectado a base de datos de VinBot
+                            </span>
+                        </div>
+                    </div>
+                    <button class="btn btn-secondary" id="chat-btn-clear" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;">
+                        🗑️ Limpiar Conversación
+                    </button>
+                </div>
+
+                <!-- Quick Prompts / Sugerencias rápidas -->
+                <div class="quick-prompts-bar">
+                    <span style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 700; text-transform: uppercase;">Preguntas Rápidas:</span>
+                    <button class="quick-prompt-btn" data-prompt="¿Cómo nos fue hoy con el PnL neto y cuánto pagamos en comisiones de Binance?">📊 PnL y Comisiones Hoy</button>
+                    <button class="quick-prompt-btn" data-prompt="¿Qué posiciones tenemos abiertas actualmente y cómo están protegidas con el Stop Loss?">🎯 Posiciones Abiertas</button>
+                    <button class="quick-prompt-btn" data-prompt="Analiza el régimen de mercado actual y recomiéndame qué estrategia o parámetros adoptar.">📈 Estrategia Recomendada</button>
+                    <button class="quick-prompt-btn" data-prompt="Tengo $70 USDC de capital, ¿cómo debería gestionar el riesgo para no sufrir pérdidas por comisión?">🛡️ Gestión de Riesgo ($70)</button>
+                </div>
+
+                <!-- Chat Messages Scroll Container -->
+                <div class="chat-messages-container" id="chat-messages-container">
+                    <div class="chat-msg assistant">
+                        <div class="chat-avatar">🤖</div>
+                        <div class="chat-bubble">
+                            <div class="chat-author">VinBot Quant Analyst <span class="chat-time">Ahora</span></div>
+                            <div class="chat-content">
+                                ¡Hola! Soy tu <strong>Asesor Cuantitativo de Trading y Riesgo</strong>. Estoy conectado directamente a tus bases de datos, métricas de Binance y al motor de riesgo de VinBot.<br><br>
+                                Puedes consultarme en lenguaje natural sobre:
+                                <ul>
+                                    <li><strong>Ganancias netas y comisiones</strong> reales descontando el costo de ida y vuelta.</li>
+                                    <li><strong>Estado de posiciones abiertas</strong> y niveles de Stop Loss / Break-Even.</li>
+                                    <li><strong>Estrategias recomendadas</strong> según el régimen de mercado detectado (Rango vs Tendencia).</li>
+                                </ul>
+                                ¿En qué puedo ayudarte hoy?
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chat Input Form -->
+                <form class="chat-input-container" id="chat-input-form">
+                    <textarea 
+                        id="chat-user-input" 
+                        class="chat-input-textarea" 
+                        placeholder="Escribe tu consulta sobre operaciones, comisiones o estrategias... (Enter para enviar, Shift+Enter para nueva línea)"
+                        rows="1"
+                    ></textarea>
+                    <button type="submit" class="btn btn-primary chat-send-btn" id="chat-send-btn">
+                        <span>Enviar</span>
+                        <span id="chat-send-spinner" class="spinner" style="display: none; width: 14px; height: 14px; border-width: 2px;"></span>
+                    </button>
+                </form>
             </section>
         </div>
     </div>

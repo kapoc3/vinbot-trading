@@ -320,4 +320,55 @@ def test_dashboard_sell_position_endpoint(mock_dependencies):
 
     app.dependency_overrides.clear()
 
+def test_dashboard_ai_chat_endpoint(mock_dependencies):
+    from app.main import app
+    from app.api.v1.endpoints.dashboard import verify_session
+    client = TestClient(app)
+
+    # 1. Unauthorized request
+    res = client.post("/api/v1/dashboard/ai-chat", json={"message": "¿Cómo vamos?"})
+    assert res.status_code == 401
+
+    # Override session auth
+    app.dependency_overrides[verify_session] = lambda: "admin"
+
+    # 2. Empty message
+    res = client.post("/api/v1/dashboard/ai-chat", json={"message": "   "})
+    assert res.status_code == 400
+    assert "El mensaje no puede estar vacío" in res.json()["detail"]
+
+    # 3. Successful chat response
+    mock_reply = {
+        "status": "success",
+        "reply": "El PnL neto de hoy es +$15.50 USD y el win rate se mantiene en 68%.",
+        "model": "qwen2.5:7b"
+    }
+
+    with patch("app.services.ai_chat_service.ai_chat_service.ask_analyst", new_callable=AsyncMock, return_value=mock_reply) as mock_ask:
+        res = client.post("/api/v1/dashboard/ai-chat", json={"message": "¿Cómo vamos hoy?", "history": []})
+        assert res.status_code == 200
+        data = res.json()
+        assert data["status"] == "success"
+        assert "PnL neto" in data["reply"]
+        assert data["model"] == "qwen2.5:7b"
+        mock_ask.assert_called_once_with("¿Cómo vamos hoy?", [])
+
+    # 4. Chat engine status endpoint
+    mock_status = {
+        "online": True,
+        "target_model": "qwen2.5:7b",
+        "model_available": True,
+        "installed_models": ["qwen2.5:7b"],
+        "message": "Ollama local operativo con aceleración GPU."
+    }
+    with patch("app.services.ai_chat_service.ai_chat_service.check_ollama_status", new_callable=AsyncMock, return_value=mock_status) as mock_st:
+        res = client.get("/api/v1/dashboard/ai-chat/status")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["online"] is True
+        assert data["target_model"] == "qwen2.5:7b"
+
+    app.dependency_overrides.clear()
+
+
 
