@@ -32,6 +32,10 @@ services:
       - ENABLE_BTC_DIRECTIONAL_FILTER=false
       - ENABLE_RELATIVE_STRENGTH_FILTER=false
       - KRONOS_SERVICE_URL=http://kronos:8005
+      - OLLAMA_BASE_URL=http://192.168.2.70:11434
+      - OLLAMA_MODEL=qwen2.5:7b
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: always
     depends_on:
       - db

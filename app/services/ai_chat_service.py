@@ -22,16 +22,47 @@ class AIChatService:
 
     def __init__(self):
         self.client: Optional[httpx.AsyncClient] = None
+        self.active_base_url: Optional[str] = None
 
     def _get_client(self) -> httpx.AsyncClient:
         if self.client is None or self.client.is_closed:
             self.client = httpx.AsyncClient(timeout=settings.OLLAMA_TIMEOUT_SECONDS)
         return self.client
 
+    async def _resolve_base_url(self) -> str:
+        """Find working Ollama URL among configured URL, host LAN IP, host.docker.internal, and localhost."""
+        if self.active_base_url:
+            return self.active_base_url
+
+        client = self._get_client()
+        candidates = []
+        if settings.OLLAMA_BASE_URL:
+            candidates.append(settings.OLLAMA_BASE_URL.rstrip("/"))
+
+        for fallback in [
+            "http://192.168.2.70:11434",
+            "http://host.docker.internal:11434",
+            "http://172.18.0.1:11434",
+            "http://localhost:11434",
+        ]:
+            if fallback not in candidates:
+                candidates.append(fallback)
+
+        for candidate in candidates:
+            try:
+                res = await client.get(f"{candidate}/api/tags", timeout=1.5)
+                if res.status_code == 200:
+                    self.active_base_url = candidate
+                    return candidate
+            except Exception:
+                continue
+
+        return settings.OLLAMA_BASE_URL.rstrip("/")
+
     async def check_ollama_status(self) -> Dict[str, Any]:
         """Check if local Ollama daemon is reachable and whether the target model is installed."""
         client = self._get_client()
-        base_url = settings.OLLAMA_BASE_URL.rstrip("/")
+        base_url = await self._resolve_base_url()
         try:
             res = await client.get(f"{base_url}/api/tags", timeout=5.0)
             if res.status_code == 200:
@@ -43,6 +74,7 @@ class AIChatService:
                     "target_model": settings.OLLAMA_MODEL,
                     "model_available": has_model,
                     "installed_models": models,
+                    "active_url": base_url,
                     "message": "Ollama local operativo con aceleración GPU." if has_model else f"Ollama en línea. Falta descargar: ollama pull {settings.OLLAMA_MODEL}"
                 }
             return {
@@ -50,15 +82,18 @@ class AIChatService:
                 "target_model": settings.OLLAMA_MODEL,
                 "model_available": False,
                 "installed_models": [],
+                "active_url": base_url,
                 "message": f"Ollama respondió con código {res.status_code}."
             }
         except Exception as e:
+            self.active_base_url = None
             logger.debug(f"AI_CHAT | Could not reach Ollama at {base_url}: {e}")
             return {
                 "online": False,
                 "target_model": settings.OLLAMA_MODEL,
                 "model_available": False,
                 "installed_models": [],
+                "active_url": base_url,
                 "message": f"Servidor Ollama no detectado en {base_url}. Inicia con: ollama serve"
             }
 
@@ -76,7 +111,8 @@ class AIChatService:
         tot_profit = stats.get("total_profit", 0.0)
         win_rate = stats.get("win_rate", 0.0)
         total_trades = stats.get("total_trades", 0)
-        drawdown = stats.get("drawdown", 0.0)
+        raw_dd = stats.get("drawdown", 0.0)
+        drawdown_val = float(raw_dd.get("max_drawdown", 0.0) if isinstance(raw_dd, dict) else (raw_dd or 0.0))
 
         # 2. Daily metrics
         daily_pnl = getattr(risk_manager, "daily_pnl", 0.0)
@@ -130,7 +166,7 @@ class AIChatService:
 
         context = f"""=== VINBOT REAL-TIME TRADING SNAPSHOT ({now_str}) ===
 • PnL Neto Diario: ${daily_pnl:+.4f} USD
-• Ganancia Total Histórica: ${tot_profit:+.2f} USD | Drawdown: -${abs(drawdown):.2f} USD
+• Ganancia Total Histórica: ${tot_profit:+.2f} USD | Drawdown: -${abs(drawdown_val):.2f} USD
 • Win Rate: {win_rate:.1f}% en {total_trades} operaciones ejecutadas
 • Comisión Binance Efectiva: {fee_pct}% por operación ({fee_name})
 • Política de Stop Loss: Break-Even + Comisiones de ida y vuelta garantizadas (Factor {settings.ROUND_TRIP_FEE_FACTOR:.6f}x)
@@ -209,7 +245,7 @@ DIRECTRICES DE RESPUESTA:
         messages.append({"role": "user", "content": user_message})
 
         client = self._get_client()
-        base_url = settings.OLLAMA_BASE_URL.rstrip("/")
+        base_url = await self._resolve_base_url()
         payload = {
             "model": settings.OLLAMA_MODEL,
             "messages": messages,
