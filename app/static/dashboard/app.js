@@ -189,6 +189,22 @@ function updateUI(data) {
     widgetDrawdown.textContent = `$${dd.toFixed(4)}`;
     widgetDrawdown.className = `stat-value ${dd > 0 ? 'negative' : ''}`;
 
+    // Update Topbar Quick KPI Glance
+    const topCapital = document.getElementById('topbar-capital');
+    const topDaily = document.getElementById('topbar-daily-pnl');
+    const topWin = document.getElementById('topbar-win-rate');
+    if (topCapital && data.wallet) {
+        topCapital.textContent = `$${(data.wallet.total_usd || 0.0).toFixed(2)}`;
+    }
+    if (topDaily) {
+        const dPnl = data.daily_pnl || 0.0;
+        topDaily.textContent = `${dPnl >= 0 ? '+' : ''}$${dPnl.toFixed(2)}`;
+        topDaily.className = `kpi-val ${dPnl >= 0 ? 'positive' : 'negative'}`;
+    }
+    if (topWin && data.performance_stats) {
+        topWin.textContent = `${(data.performance_stats.win_rate || 0.0).toFixed(1)}%`;
+    }
+
     // 3.5 Render Active Open Positions
     renderActivePositions(data.active_positions || {}, data);
 
@@ -513,22 +529,48 @@ function renderMLInsights(ml) {
     }
 }
 
+let allClosedCycles = [];
+let cyclesCurrentPage = 1;
+const CYCLES_PAGE_SIZE = 8;
+
+let allTrades = [];
+let tradesCurrentPage = 1;
+const TRADES_PAGE_SIZE = 10;
+
 function renderClosedCycles(cycles) {
     const grid = document.getElementById('closed-cycles-grid');
+    const paginationBar = document.getElementById('cycles-pagination-bar');
+    const paginationInfo = document.getElementById('cycles-pagination-info');
+    const pageDisplay = document.getElementById('cycles-page-display');
+    const prevBtn = document.getElementById('cycles-prev-btn');
+    const nextBtn = document.getElementById('cycles-next-btn');
+
     if (!grid) return;
+    if (cycles !== undefined) {
+        allClosedCycles = cycles || [];
+    }
+
     grid.innerHTML = '';
 
-    if (!cycles || cycles.length === 0) {
+    if (!allClosedCycles || allClosedCycles.length === 0) {
         grid.innerHTML = '<div class="loading-placeholder">Aún no hay ventas cerradas que emparejen compras previas.</div>';
+        if (paginationBar) paginationBar.style.display = 'none';
         return;
     }
 
-    cycles.forEach(c => {
+    const totalPages = Math.max(1, Math.ceil(allClosedCycles.length / CYCLES_PAGE_SIZE));
+    if (cyclesCurrentPage > totalPages) cyclesCurrentPage = 1;
+
+    const startIdx = (cyclesCurrentPage - 1) * CYCLES_PAGE_SIZE;
+    const endIdx = Math.min(startIdx + CYCLES_PAGE_SIZE, allClosedCycles.length);
+    const pageItems = allClosedCycles.slice(startIdx, endIdx);
+
+    pageItems.forEach(c => {
         const pnlUsd = c.pnl_usd || 0.0;
         const pnlPct = c.pnl_pct || 0.0;
         const isWin = pnlUsd >= 0;
         const pnlColor = isWin ? 'var(--accent-green)' : 'var(--accent-red)';
-        const borderAccent = isWin ? 'rgba(16, 185, 129, 0.35)' : 'rgba(239, 68, 68, 0.35)';
+        const borderAccent = isWin ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)';
 
         let dateStr = c.timestamp || '';
         if (c.timestamp) {
@@ -538,134 +580,232 @@ function renderClosedCycles(cycles) {
         }
 
         const detailsList = (c.matched_details || []).map(m =>
-            `<div style="display: flex; justify-content: space-between; font-size: 0.76rem; color: var(--text-secondary);">
-                <span>↳ Compra <b>#${m.buy_order_id}</b> (${m.qty} a $${parseFloat(m.buy_price).toFixed(2)})</span>
-                <span style="color: ${m.pnl_usd >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'}; font-weight: 600;">${m.pnl_usd >= 0 ? '+' : ''}$${parseFloat(m.pnl_usd).toFixed(4)}</span>
+            `<div style="display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--text-secondary); padding: 0.25rem 0; border-bottom: 1px solid rgba(255,255,255,0.03);">
+                <span>↳ Orden Compra <b>#${m.buy_order_id}</b> (${m.qty} a $${parseFloat(m.buy_price).toFixed(2)})</span>
+                <span style="color: ${m.pnl_usd >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'}; font-weight: 600;">
+                    ${m.pnl_usd >= 0 ? '+' : ''}$${parseFloat(m.pnl_usd).toFixed(4)} USD
+                </span>
             </div>`
-        ).join('');
+        ).join('') || '<div style="font-size: 0.75rem; color: var(--text-secondary);">Sin compras desglosadas.</div>';
 
         const card = document.createElement('div');
-        card.className = 'symbol-card';
-        card.style.border = `1px solid ${borderAccent}`;
+        card.className = 'collapsible-card';
+        card.style.borderColor = borderAccent;
+
         card.innerHTML = `
-            <div class="symbol-header" style="margin-bottom: 0.5rem;">
-                <div>
-                    <span class="symbol-name" style="font-size: 1rem;">${c.symbol}</span>
-                    <span style="font-size: 0.75rem; color: var(--text-secondary); margin-left: 0.4rem;">Venta #${c.sell_order_id}</span>
+            <div class="collapsible-header" onclick="this.parentElement.classList.toggle('expanded')">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <span style="font-size: 1.25rem;">🪙</span>
+                    <div>
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span style="font-weight: 800; font-size: 1rem; color: #ffffff;">${c.symbol}</span>
+                            <span class="regime-tag ${isWin ? 'trending' : 'highvolatility'}" style="font-size: 0.68rem; padding: 2px 6px;">
+                                ${isWin ? 'GANANCIA NETA' : 'STOP LOSS'}
+                            </span>
+                        </div>
+                        <span style="font-size: 0.75rem; color: var(--text-secondary);">Venta #${c.sell_order_id} • ${dateStr}</span>
+                    </div>
                 </div>
-                <span class="side-badge ${isWin ? 'buy' : 'sell'}" style="font-size: 0.8rem;">
-                    ${isWin ? '+' : ''}$${pnlUsd.toFixed(4)} USDC (${isWin ? '+' : ''}${pnlPct.toFixed(2)}%)
-                </span>
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <div style="text-align: right;">
+                        <span class="side-badge ${isWin ? 'buy' : 'sell'}" style="font-size: 0.85rem; font-weight: 800;">
+                            ${isWin ? '+' : ''}$${pnlUsd.toFixed(4)} USDC (${isWin ? '+' : ''}${pnlPct.toFixed(2)}%)
+                        </span>
+                    </div>
+                    <span class="collapsible-chevron">▼</span>
+                </div>
             </div>
-            <div style="font-size: 0.82rem; display: flex; flex-direction: column; gap: 0.35rem;">
-                <div style="display: flex; justify-content: space-between;">
-                    <span class="strategy-label">Fecha Venta:</span>
-                    <span style="color: #e5e7eb;">${dateStr}</span>
+            <div class="collapsible-body">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; margin-bottom: 0.75rem; font-size: 0.82rem;">
+                    <div class="detail-box">
+                        <div class="detail-box-label">Compra Promedio → Venta Real</div>
+                        <div class="detail-box-value" style="font-size: 0.95rem;">
+                            $${parseFloat(c.avg_buy_price || 0).toFixed(2)} → <strong style="color: #60a5fa;">$${parseFloat(c.sell_price || 0).toFixed(2)}</strong>
+                        </div>
+                    </div>
+                    <div class="detail-box">
+                        <div class="detail-box-label">Capital Invertido → Recuperado</div>
+                        <div class="detail-box-value" style="font-size: 0.95rem; color: ${pnlColor};">
+                            $${parseFloat(c.buy_cost_usd || 0).toFixed(2)} → $${parseFloat(c.sell_value_usd || 0).toFixed(2)} USDC
+                        </div>
+                    </div>
+                    <div class="detail-box">
+                        <div class="detail-box-label">Protección de Comisiones</div>
+                        <div class="detail-box-value" style="font-size: 0.85rem; color: var(--accent-green);">
+                            Garantizado con BE+Fees (0.075%)
+                        </div>
+                    </div>
                 </div>
-                <div style="display: flex; justify-content: space-between;">
-                    <span class="strategy-label">Precio Compra Prom. → Venta:</span>
-                    <span style="font-weight: 700; color: #f3f4f6;">$${parseFloat(c.avg_buy_price).toFixed(2)} → $${parseFloat(c.sell_price).toFixed(2)}</span>
+                <div style="font-size: 0.75rem; font-weight: 700; color: #9ca3af; text-transform: uppercase; margin-bottom: 0.4rem;">
+                    Compras Emparejadas FIFO (${(c.matched_details || []).length}):
                 </div>
-                <div style="display: flex; justify-content: space-between;">
-                    <span class="strategy-label">Capital Invertido → Recuperado:</span>
-                    <span style="font-weight: 600; color: ${pnlColor};">$${parseFloat(c.buy_cost_usd).toFixed(2)} → $${parseFloat(c.sell_value_usd).toFixed(2)} USDC</span>
-                </div>
-                <div style="margin-top: 0.35rem; padding-top: 0.35rem; border-top: 1px solid rgba(255,255,255,0.06);">
-                    <div style="font-size: 0.75rem; font-weight: 600; color: #9ca3af; margin-bottom: 0.2rem;">Compras Asociadas (${(c.matched_details || []).length}):</div>
-                    ${detailsList}
-                </div>
+                ${detailsList}
             </div>
         `;
         grid.appendChild(card);
     });
+
+    if (paginationBar) {
+        paginationBar.style.display = totalPages > 1 ? 'flex' : 'none';
+        if (paginationInfo) {
+            paginationInfo.textContent = `Mostrando ${startIdx + 1} - ${endIdx} de ${allClosedCycles.length} ciclos cerrados`;
+        }
+        if (pageDisplay) {
+            pageDisplay.textContent = `Pág. ${cyclesCurrentPage} de ${totalPages}`;
+        }
+        if (prevBtn) {
+            prevBtn.disabled = (cyclesCurrentPage <= 1);
+            prevBtn.onclick = () => {
+                if (cyclesCurrentPage > 1) {
+                    cyclesCurrentPage--;
+                    renderClosedCycles();
+                }
+            };
+        }
+        if (nextBtn) {
+            nextBtn.disabled = (cyclesCurrentPage >= totalPages);
+            nextBtn.onclick = () => {
+                if (cyclesCurrentPage < totalPages) {
+                    cyclesCurrentPage++;
+                    renderClosedCycles();
+                }
+            };
+        }
+    }
 }
 
-// Render Trades List inside the Table
+// Render Trades List inside the Table with Pagination
 function renderTrades(trades) {
+    if (trades !== undefined) {
+        allTrades = trades || [];
+    }
     tradesTbody.innerHTML = '';
-    
-    if (trades.length === 0) {
+
+    const paginationBar = document.getElementById('trades-pagination-bar');
+    const paginationInfo = document.getElementById('trades-pagination-info');
+    const pageDisplay = document.getElementById('trades-page-display');
+    const prevBtn = document.getElementById('trades-prev-btn');
+    const nextBtn = document.getElementById('trades-next-btn');
+
+    if (!allTrades || allTrades.length === 0) {
         const msg = selectedDate 
             ? `No se han registrado operaciones el día ${selectedDate}.`
             : "No se han registrado operaciones en SQLite aún.";
         tradesTbody.innerHTML = `<tr><td colspan="7" class="loading-placeholder">${msg}</td></tr>`;
-    } else {
-        trades.forEach(trade => {
-            const row = document.createElement('tr');
-            
-            // Format timestamp (ISO to local date-time)
-            let dateStr = 'N/A';
-            if (trade.timestamp) {
-                const isoStr = trade.timestamp.includes(' ') ? trade.timestamp.replace(' ', 'T') : trade.timestamp;
-                const d = new Date(isoStr + 'Z');
-                dateStr = isNaN(d.getTime()) ? trade.timestamp : d.toLocaleString();
-            }
+        if (paginationBar) paginationBar.style.display = 'none';
+        return;
+    }
 
-            const side = (trade.side || 'BUY').toUpperCase();
-            const price = parseFloat(trade.price || 0);
-            const qty = parseFloat(trade.quantity || 0);
-            const valUsd = trade.order_value_usd !== undefined ? parseFloat(trade.order_value_usd) : (price * qty);
+    const totalPages = Math.max(1, Math.ceil(allTrades.length / TRADES_PAGE_SIZE));
+    if (tradesCurrentPage > totalPages) tradesCurrentPage = 1;
 
-            // Linked Buy <-> Sell text
-            const linkedHtml = trade.linked_text
-                ? `<div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.2rem; font-weight: 600;">${trade.linked_text}</div>`
-                : '';
+    const startIdx = (tradesCurrentPage - 1) * TRADES_PAGE_SIZE;
+    const endIdx = Math.min(startIdx + TRADES_PAGE_SIZE, allTrades.length);
+    const pageTrades = allTrades.slice(startIdx, endIdx);
 
-            // Buy -> Sell price comparison cell
-            let priceComparisonHtml = `$${price.toFixed(2)}`;
-            if (side === 'SELL' && trade.buy_price) {
-                priceComparisonHtml = `
-                    <div><span style="color: var(--text-secondary); font-size: 0.78rem;">Compra Prom:</span> $${parseFloat(trade.buy_price).toFixed(2)}</div>
-                    <div style="font-weight: 700; color: #f3f4f6;"><span style="color: var(--text-secondary); font-size: 0.78rem;">Venta Real:</span> $${price.toFixed(2)}</div>
-                `;
-            } else if (side === 'BUY' && trade.sell_price) {
-                const sLabel = trade.trade_status === 'SOLD' ? 'Vendida a:' : 'Actual:';
-                priceComparisonHtml = `
-                    <div style="font-weight: 700; color: #f3f4f6;"><span style="color: var(--text-secondary); font-size: 0.78rem;">Compra:</span> $${price.toFixed(2)}</div>
-                    <div><span style="color: var(--text-secondary); font-size: 0.78rem;">${sLabel}</span> $${parseFloat(trade.sell_price).toFixed(2)}</div>
-                `;
-            }
+    pageTrades.forEach(trade => {
+        const row = document.createElement('tr');
+        
+        // Format timestamp (ISO to local date-time)
+        let dateStr = 'N/A';
+        if (trade.timestamp) {
+            const isoStr = trade.timestamp.includes(' ') ? trade.timestamp.replace(' ', 'T') : trade.timestamp;
+            const d = new Date(isoStr + 'Z');
+            dateStr = isNaN(d.getTime()) ? trade.timestamp : d.toLocaleString();
+        }
 
-            // Real PnL cell
-            let pnlHtml = '<span style="color: var(--text-secondary);">-</span>';
-            if (trade.pnl_usd !== null && trade.pnl_usd !== undefined) {
-                const pnlUsd = parseFloat(trade.pnl_usd);
-                const pnlPct = parseFloat(trade.pnl_pct || 0);
-                const isPos = pnlUsd >= 0;
-                const color = isPos ? 'var(--accent-green)' : 'var(--accent-red)';
-                let statusTag = '';
-                if (side === 'SELL') {
-                    statusTag = '<div style="font-size: 0.72rem; color: var(--text-secondary);">Ganancia Real Cierre</div>';
-                } else if (trade.trade_status === 'SOLD') {
-                    statusTag = `<div style="font-size: 0.72rem; color: var(--text-secondary);">Cerrada en #${(trade.linked_order_ids || [])[0] || ''}</div>`;
-                } else {
-                    statusTag = '<div style="font-size: 0.72rem; color: #60a5fa;">PnL Flotante (Abierta)</div>';
-                }
-                pnlHtml = `
-                    <div style="font-weight: 700; color: ${color};">
-                        ${isPos ? '+' : ''}$${pnlUsd.toFixed(4)} USDC (${isPos ? '+' : ''}${pnlPct.toFixed(2)}%)
-                    </div>
-                    ${statusTag}
-                `;
-            }
+        const side = (trade.side || 'BUY').toUpperCase();
+        const price = parseFloat(trade.price || 0);
+        const qty = parseFloat(trade.quantity || 0);
+        const valUsd = trade.order_value_usd !== undefined ? parseFloat(trade.order_value_usd) : (price * qty);
 
-            row.innerHTML = `
-                <td>${dateStr}</td>
-                <td>
-                    <div style="font-weight: 700;">#${trade.order_id}</div>
-                    ${linkedHtml}
-                </td>
-                <td style="font-weight: 600;">${trade.symbol}</td>
-                <td><span class="side-badge ${side.toLowerCase()}">${side}</span></td>
-                <td>${priceComparisonHtml}</td>
-                <td>
-                    <div style="font-weight: 600;">${qty.toFixed(5)}</div>
-                    <div style="font-size: 0.76rem; color: var(--text-secondary);">$${valUsd.toFixed(2)} USDC</div>
-                </td>
-                <td>${pnlHtml}</td>
+        // Linked Buy <-> Sell text
+        const linkedHtml = trade.linked_text
+            ? `<div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.2rem; font-weight: 600;">${trade.linked_text}</div>`
+            : '';
+
+        // Buy -> Sell price comparison cell
+        let priceComparisonHtml = `$${price.toFixed(2)}`;
+        if (side === 'SELL' && trade.buy_price) {
+            priceComparisonHtml = `
+                <div><span style="color: var(--text-secondary); font-size: 0.78rem;">Compra Prom:</span> $${parseFloat(trade.buy_price).toFixed(2)}</div>
+                <div style="font-weight: 700; color: #f3f4f6;"><span style="color: var(--text-secondary); font-size: 0.78rem;">Venta Real:</span> $${price.toFixed(2)}</div>
             `;
-            tradesTbody.appendChild(row);
-        });
+        } else if (side === 'BUY' && trade.sell_price) {
+            const sLabel = trade.trade_status === 'SOLD' ? 'Vendida a:' : 'Actual:';
+            priceComparisonHtml = `
+                <div style="font-weight: 700; color: #f3f4f6;"><span style="color: var(--text-secondary); font-size: 0.78rem;">Compra:</span> $${price.toFixed(2)}</div>
+                <div><span style="color: var(--text-secondary); font-size: 0.78rem;">${sLabel}</span> $${parseFloat(trade.sell_price).toFixed(2)}</div>
+            `;
+        }
+
+        // Real PnL cell
+        let pnlHtml = '<span style="color: var(--text-secondary);">-</span>';
+        if (trade.pnl_usd !== null && trade.pnl_usd !== undefined) {
+            const pnlUsd = parseFloat(trade.pnl_usd);
+            const pnlPct = parseFloat(trade.pnl_pct || 0);
+            const isPos = pnlUsd >= 0;
+            const color = isPos ? 'var(--accent-green)' : 'var(--accent-red)';
+            let statusTag = '';
+            if (side === 'SELL') {
+                statusTag = '<div style="font-size: 0.72rem; color: var(--text-secondary);">Ganancia Real Cierre</div>';
+            } else if (trade.trade_status === 'SOLD') {
+                statusTag = `<div style="font-size: 0.72rem; color: var(--text-secondary);">Cerrada en #${(trade.linked_order_ids || [])[0] || ''}</div>`;
+            } else {
+                statusTag = '<div style="font-size: 0.72rem; color: #60a5fa;">PnL Flotante (Abierta)</div>';
+            }
+            pnlHtml = `
+                <div style="font-weight: 700; color: ${color};">
+                    ${isPos ? '+' : ''}$${pnlUsd.toFixed(4)} USDC (${isPos ? '+' : ''}${pnlPct.toFixed(2)}%)
+                </div>
+                ${statusTag}
+            `;
+        }
+
+        row.innerHTML = `
+            <td>${dateStr}</td>
+            <td>
+                <div style="font-weight: 700;">#${trade.order_id}</div>
+                ${linkedHtml}
+            </td>
+            <td style="font-weight: 600;">${trade.symbol}</td>
+            <td><span class="side-badge ${side.toLowerCase()}">${side}</span></td>
+            <td>${priceComparisonHtml}</td>
+            <td>
+                <div style="font-weight: 600;">${qty.toFixed(5)}</div>
+                <div style="font-size: 0.76rem; color: var(--text-secondary);">$${valUsd.toFixed(2)} USDC</div>
+            </td>
+            <td>${pnlHtml}</td>
+        `;
+        tradesTbody.appendChild(row);
+    });
+
+    if (paginationBar) {
+        paginationBar.style.display = totalPages > 1 ? 'flex' : 'none';
+        if (paginationInfo) {
+            paginationInfo.textContent = `Mostrando ${startIdx + 1} - ${endIdx} de ${allTrades.length} órdenes`;
+        }
+        if (pageDisplay) {
+            pageDisplay.textContent = `Pág. ${tradesCurrentPage} de ${totalPages}`;
+        }
+        if (prevBtn) {
+            prevBtn.disabled = (tradesCurrentPage <= 1);
+            prevBtn.onclick = () => {
+                if (tradesCurrentPage > 1) {
+                    tradesCurrentPage--;
+                    renderTrades();
+                }
+            };
+        }
+        if (nextBtn) {
+            nextBtn.disabled = (tradesCurrentPage >= totalPages);
+            nextBtn.onclick = () => {
+                if (tradesCurrentPage < totalPages) {
+                    tradesCurrentPage++;
+                    renderTrades();
+                }
+            };
+        }
     }
 }
 
@@ -705,6 +845,8 @@ function showToast(title, message) {
 // Listen for Date Filter changes
 filterDateInput.addEventListener('change', (e) => {
     selectedDate = e.target.value;
+    tradesCurrentPage = 1;
+    cyclesCurrentPage = 1;
     if (selectedDate) {
         fetchFilteredTrades();
     } else {
@@ -716,6 +858,8 @@ filterDateInput.addEventListener('change', (e) => {
 btnClearFilter.addEventListener('click', () => {
     filterDateInput.value = '';
     selectedDate = '';
+    tradesCurrentPage = 1;
+    cyclesCurrentPage = 1;
     fetchMetrics();
 });
 
@@ -1193,7 +1337,31 @@ window.triggerSellPosition = triggerSellPosition;
 // ==============================================================================
 // TAB NAVIGATION SYSTEM
 // ==============================================================================
+const tabHeaders = {
+    'tab-overview': { title: '📊 Resumen General', sub: 'Monitoreo en vivo de capital, posiciones y métricas de riesgo' },
+    'tab-portfolio': { title: '💼 Portafolio Binance Spot', sub: 'Desglose de liquidez y tenencias cripto en tiempo real' },
+    'tab-market': { title: '📈 Mercado & Gráficos', sub: 'Análisis técnico de velas y confluencia en vivo' },
+    'tab-ai': { title: '🧠 Inteligencia Artificial', sub: 'Predicciones locales, vetoes de riesgo y modelo Kronos' },
+    'tab-trades': { title: '📜 Historial de Operaciones', sub: 'Ciclos de compra y venta con ganancia neta verificada' },
+    'tab-system': { title: '⚙️ Sistema & Scanner', sub: 'Arquitectura Core-Satellite 70/30 y blindaje de comisiones' },
+    'tab-chat': { title: '💬 IA Asesor (Ollama)', sub: 'Consultas en lenguaje natural con aceleración GPU GTX 1060' },
+};
+
 function switchTab(tabId) {
+    const meta = tabHeaders[tabId];
+    if (meta) {
+        const titleEl = document.getElementById('topbar-section-title');
+        const subEl = document.getElementById('topbar-section-sub');
+        if (titleEl) titleEl.textContent = meta.title;
+        if (subEl) subEl.textContent = meta.sub;
+    }
+
+    // Auto-close mobile sidebar if open
+    const sidebar = document.getElementById('app-sidebar');
+    const backdrop = document.getElementById('sidebar-backdrop');
+    if (sidebar) sidebar.classList.remove('mobile-open');
+    if (backdrop) backdrop.classList.remove('active');
+
     document.querySelectorAll('.nav-tab').forEach(tab => {
         if (tab.getAttribute('data-tab') === tabId) {
             tab.classList.add('active');
@@ -1227,6 +1395,25 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
         if (tabId) switchTab(tabId);
     });
 });
+
+// Mobile Sidebar Toggle Listeners
+const sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
+const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+const appSidebar = document.getElementById('app-sidebar');
+
+if (sidebarToggleBtn && appSidebar) {
+    sidebarToggleBtn.addEventListener('click', () => {
+        appSidebar.classList.toggle('mobile-open');
+        if (sidebarBackdrop) sidebarBackdrop.classList.toggle('active');
+    });
+}
+
+if (sidebarBackdrop && appSidebar) {
+    sidebarBackdrop.addEventListener('click', () => {
+        appSidebar.classList.remove('mobile-open');
+        sidebarBackdrop.classList.remove('active');
+    });
+}
 
 // Quick Action Jump Listeners (e.g. data-action="goto-portfolio")
 document.querySelectorAll('[data-action]').forEach(el => {

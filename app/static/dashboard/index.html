@@ -11,67 +11,111 @@
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 </head>
 <body>
-    <div class="app-container">
-        <!-- Header -->
-        <header class="dashboard-header">
-            <div class="brand">
+    <!-- Mobile Sidebar Backdrop Overlay -->
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+    <div class="app-shell">
+        <!-- Left Vertical Sidebar (Panel de Módulos) -->
+        <aside class="app-sidebar" id="app-sidebar">
+            <div class="sidebar-brand">
                 <span class="logo-icon">🤖</span>
                 <div class="brand-text">
-                    <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="display: flex; align-items: center; gap: 6px;">
                         <h1 id="brand-title">VinBot</h1>
-                        <span class="badge" id="profile-badge" style="font-size: 0.72rem; padding: 2px 8px; border-radius: 6px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); font-weight: 600;">CORE (70%)</span>
+                        <span class="badge" id="profile-badge">CORE (70%)</span>
                     </div>
-                    <p>Trading Algorítmico en Tiempo Real • Binance Spot</p>
+                    <p>Trading Algorítmico Binance Spot</p>
                 </div>
             </div>
-            <div class="header-right">
+
+            <!-- Compact Status Card in Sidebar -->
+            <div class="sidebar-status-box">
                 <div class="system-status">
                     <span class="status-indicator" id="status-indicator"></span>
                     <span class="status-text" id="status-text">Cargando estado...</span>
                 </div>
-                <div class="controls">
-                    <button class="btn" id="btn-toggle-bot">Cargando...</button>
-                    <button class="btn btn-danger" id="btn-reset-ops">Reiniciar Operaciones</button>
+                <div class="sidebar-fee-note">
+                    <span>Comisión: <strong>0.075% BNB</strong></span>
+                    <span style="color: var(--accent-green); font-weight: 700;">BE + Fees</span>
+                </div>
+            </div>
+
+            <!-- Vertical Module Navigation -->
+            <div class="sidebar-section-title">PANEL DE MÓDULOS</div>
+            <nav class="sidebar-nav">
+                <button class="nav-tab active" data-tab="tab-overview">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-label">Resumen</span>
+                </button>
+                <button class="nav-tab" data-tab="tab-portfolio">
+                    <span class="nav-icon">💼</span>
+                    <span class="nav-label">Portafolio</span>
+                    <span class="nav-pill" id="nav-portfolio-pill">$0.00</span>
+                </button>
+                <button class="nav-tab" data-tab="tab-market">
+                    <span class="nav-icon">📈</span>
+                    <span class="nav-label">Mercado & Gráficos</span>
+                </button>
+                <button class="nav-tab" data-tab="tab-ai">
+                    <span class="nav-icon">🧠</span>
+                    <span class="nav-label">Inteligencia Artificial</span>
+                    <span class="nav-pill badge-ai" id="nav-ai-pill">4 Cerebros</span>
+                </button>
+                <button class="nav-tab" data-tab="tab-trades">
+                    <span class="nav-icon">📜</span>
+                    <span class="nav-label">Operaciones</span>
+                    <span class="nav-pill" id="nav-trades-pill">0</span>
+                </button>
+                <button class="nav-tab" data-tab="tab-system">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-label">Sistema & Scanner</span>
+                </button>
+                <button class="nav-tab" data-tab="tab-chat">
+                    <span class="nav-icon">💬</span>
+                    <span class="nav-label">IA Asesor</span>
+                    <span class="nav-pill" id="nav-chat-pill" style="background: rgba(168, 85, 247, 0.25); color: #c084fc;">Ollama</span>
+                </button>
+            </nav>
+
+            <!-- Bottom Sidebar Controls -->
+            <div class="sidebar-footer">
+                <button class="btn btn-primary" id="btn-toggle-bot" style="width: 100%;">Cargando...</button>
+                <div style="display: flex; gap: 0.5rem; width: 100%;">
+                    <button class="btn btn-danger" id="btn-reset-ops" style="flex: 1; padding: 0.45rem 0.5rem; font-size: 0.78rem;">Reiniciar Ops</button>
                     <button class="btn btn-logout" id="btn-logout" title="Cerrar Sesión">🔑</button>
                 </div>
             </div>
-        </header>
+        </aside>
 
-        <!-- Modern Tab Navigation Bar -->
-        <nav class="dashboard-nav glass">
-            <button class="nav-tab active" data-tab="tab-overview">
-                <span class="nav-icon">📊</span>
-                <span class="nav-label">Resumen</span>
-            </button>
-            <button class="nav-tab" data-tab="tab-portfolio">
-                <span class="nav-icon">💼</span>
-                <span class="nav-label">Portafolio</span>
-                <span class="nav-pill" id="nav-portfolio-pill">$0.00</span>
-            </button>
-            <button class="nav-tab" data-tab="tab-market">
-                <span class="nav-icon">📈</span>
-                <span class="nav-label">Mercado & Gráficos</span>
-            </button>
-            <button class="nav-tab" data-tab="tab-ai">
-                <span class="nav-icon">🧠</span>
-                <span class="nav-label">Inteligencia Artificial</span>
-                <span class="nav-pill badge-ai" id="nav-ai-pill">4 Cerebros</span>
-            </button>
-            <button class="nav-tab" data-tab="tab-trades">
-                <span class="nav-icon">📜</span>
-                <span class="nav-label">Operaciones</span>
-                <span class="nav-pill" id="nav-trades-pill">0</span>
-            </button>
-            <button class="nav-tab" data-tab="tab-system">
-                <span class="nav-icon">⚙️</span>
-                <span class="nav-label">Sistema & Scanner</span>
-            </button>
-            <button class="nav-tab" data-tab="tab-chat">
-                <span class="nav-icon">💬</span>
-                <span class="nav-label">IA Asesor</span>
-                <span class="nav-pill" id="nav-chat-pill" style="background: rgba(168, 85, 247, 0.25); color: #c084fc;">Ollama</span>
-            </button>
-        </nav>
+        <!-- Main Full-Width Content Container -->
+        <main class="app-main">
+            <!-- Top Bar with Active Section Header & Live KPI Glance -->
+            <header class="app-topbar">
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <button class="sidebar-toggle-btn" id="sidebar-toggle-btn" title="Alternar Menú Lateral">☰</button>
+                    <div>
+                        <div class="topbar-title" id="topbar-section-title">📊 Resumen General</div>
+                        <div class="topbar-subtitle" id="topbar-section-sub">Monitoreo en vivo de capital, posiciones y métricas de riesgo</div>
+                    </div>
+                </div>
+
+                <div class="topbar-kpis">
+                    <div class="topbar-kpi-item" data-action="goto-portfolio" style="cursor: pointer;" title="Ir al Portafolio">
+                        <span class="kpi-label">Capital Binance</span>
+                        <span class="kpi-val positive" id="topbar-capital">$0.00</span>
+                    </div>
+                    <div class="topbar-kpi-item" data-action="goto-trades" style="cursor: pointer;" title="Ir a Operaciones">
+                        <span class="kpi-label">PnL Hoy</span>
+                        <span class="kpi-val" id="topbar-daily-pnl">$0.00</span>
+                    </div>
+                    <div class="topbar-kpi-item">
+                        <span class="kpi-label">Win Rate</span>
+                        <span class="kpi-val" id="topbar-win-rate">0.0%</span>
+                    </div>
+                </div>
+            </header>
+
+            <div class="app-content-body">
 
         <!-- ====================================================================
              TAB 1: RESUMEN GENERAL (OVERVIEW)
@@ -336,35 +380,64 @@
                     </div>
                 </div>
 
-                <!-- Closed Buy-Sell Cycles Summary -->
-                <div style="margin-bottom: 1.5rem;">
-                    <h3 style="font-size: 0.95rem; color: var(--text-secondary); margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">
-                        🔄 Ciclos Cerrados (Ventas Asociadas a sus Compras y Ganancia Neta)
-                    </h3>
-                    <div id="closed-cycles-grid" class="symbols-grid">
+                <!-- Closed Buy-Sell Cycles Summary with Collapsible Cards & Pagination -->
+                <div style="margin-bottom: 2rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+                        <h3 style="font-size: 0.95rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0;">
+                            🔄 Ciclos Cerrados (Haz clic en una tarjeta para ver u ocultar su desglose completo)
+                        </h3>
+                        <span style="font-size: 0.75rem; color: #60a5fa; font-weight: 600;">▼ Tarjetas Colapsables</span>
+                    </div>
+                    <div id="closed-cycles-grid" style="display: flex; flex-direction: column; gap: 0.5rem;">
                         <div class="loading-placeholder">Analizando ciclos de compra y venta...</div>
+                    </div>
+
+                    <!-- Pagination Controls for Closed Cycles -->
+                    <div class="pagination-bar" id="cycles-pagination-bar" style="display: none;">
+                        <span class="pagination-info" id="cycles-pagination-info">Mostrando 0 de 0</span>
+                        <div class="pagination-buttons">
+                            <button class="btn btn-secondary pagination-btn" id="cycles-prev-btn" disabled>◀ Anterior</button>
+                            <span class="pagination-current" id="cycles-page-display">Pág. 1 de 1</span>
+                            <button class="btn btn-secondary pagination-btn" id="cycles-next-btn" disabled>Siguiente ▶</button>
+                        </div>
                     </div>
                 </div>
 
-                <div class="table-container">
-                    <table class="trades-table">
-                        <thead>
-                            <tr>
-                                <th>Fecha</th>
-                                <th>ID Orden / Asociación</th>
-                                <th>Par</th>
-                                <th>Operación</th>
-                                <th>Precio Compra → Venta</th>
-                                <th>Cantidad (Valor USD)</th>
-                                <th>Ganancia Neta (PnL)</th>
-                            </tr>
-                        </thead>
-                        <tbody id="trades-tbody">
-                            <tr>
-                                <td colspan="7" class="loading-placeholder">Esperando operaciones...</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                <!-- Raw Order Execution Log with Table Pagination -->
+                <div>
+                    <h3 style="font-size: 0.95rem; color: var(--text-secondary); margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">
+                        📋 Registro Cronológico de Órdenes (Trades Individuales)
+                    </h3>
+                    <div class="table-container">
+                        <table class="trades-table">
+                            <thead>
+                                <tr>
+                                    <th>Fecha</th>
+                                    <th>ID Orden / Asociación</th>
+                                    <th>Par</th>
+                                    <th>Operación</th>
+                                    <th>Precio Compra → Venta</th>
+                                    <th>Cantidad (Valor USD)</th>
+                                    <th>Ganancia Neta (PnL)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="trades-tbody">
+                                <tr>
+                                    <td colspan="7" class="loading-placeholder">Esperando operaciones...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Pagination Controls for Trades Table -->
+                    <div class="pagination-bar" id="trades-pagination-bar" style="display: none;">
+                        <span class="pagination-info" id="trades-pagination-info">Mostrando 0 de 0</span>
+                        <div class="pagination-buttons">
+                            <button class="btn btn-secondary pagination-btn" id="trades-prev-btn" disabled>◀ Anterior</button>
+                            <span class="pagination-current" id="trades-page-display">Pág. 1 de 1</span>
+                            <button class="btn btn-secondary pagination-btn" id="trades-next-btn" disabled>Siguiente ▶</button>
+                        </div>
+                    </div>
                 </div>
             </section>
         </div>
@@ -498,7 +571,9 @@
                 </form>
             </section>
         </div>
-    </div>
+            </div><!-- app-content-body -->
+        </main><!-- app-main -->
+    </div><!-- app-shell -->
 
     <!-- ====================================================================
          SYMBOL DETAIL MODAL (DETALLE DEL PAR / MONEDA)
