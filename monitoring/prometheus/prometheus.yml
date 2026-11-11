@@ -3,12 +3,26 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
+  - job_name: 'vinbot-classic'
+    static_configs:
+      - targets: ['bot-classic:8000']
+    metrics_path: '/metrics'
+
   - job_name: 'vinbot-scalper'
     static_configs:
       - targets: ['bot-scalper:8000']
     metrics_path: '/metrics'
 
-  - job_name: 'vinbot-classic'
+  - job_name: 'vinbot-kronos'
     static_configs:
-      - targets: ['bot-classic:8000']
+      - targets: ['kronos:8005']
     metrics_path: '/metrics'
+
+  - job_name: 'vinbot-grid'
+    static_configs:
+      - targets: ['bot-grid:8000']
+    metrics_path: '/metrics'
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

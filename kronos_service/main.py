@@ -5,7 +5,7 @@ import threading
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone, timedelta
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel
 
 # Add kronos_repo to path so 'model' can be imported
@@ -56,7 +56,10 @@ _state = {
     "tokenizer": None,
     "predictor": None,
     "ready": False,
-    "error": None
+    "error": None,
+    "total_forecasts": 0,
+    "last_latency_ms": 0.0,
+    "symbol_latency": {}
 }
 
 @app.on_event("startup")
@@ -91,6 +94,24 @@ def health():
         "tokenizer": "NeoQuasar/Kronos-Tokenizer-2k",
         "error": _state["error"]
     }
+
+@app.get("/metrics")
+def metrics():
+    ready_val = 1 if _state["ready"] else 0
+    lines = [
+        "# HELP kronos_model_ready Whether Kronos-mini model is loaded and ready",
+        "# TYPE kronos_model_ready gauge",
+        f"kronos_model_ready {ready_val}",
+        "# HELP kronos_forecasts_total Total count of forecasts generated",
+        "# TYPE kronos_forecasts_total counter",
+        f'kronos_forecasts_total {_state.get("total_forecasts", 0)}',
+        "# HELP kronos_last_inference_latency_ms Latency of most recent inference in milliseconds",
+        "# TYPE kronos_last_inference_latency_ms gauge",
+        f'kronos_last_inference_latency_ms {_state.get("last_latency_ms", 0.0)}',
+    ]
+    for sym, ms in _state.get("symbol_latency", {}).items():
+        lines.append(f'kronos_inference_time_ms{{symbol="{sym}"}} {ms}')
+    return Response(content="\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
 
 @app.post("/forecast", response_model=ForecastResponse)
 def forecast(req: ForecastRequest):
@@ -178,6 +199,13 @@ def forecast(req: ForecastRequest):
 
         confidence = round(float(0.5 + 0.5 * consistency), 2)
         elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000.0
+
+        # Update service telemetry for Prometheus /metrics
+        _state["total_forecasts"] = _state.get("total_forecasts", 0) + 1
+        _state["last_latency_ms"] = round(elapsed_ms, 1)
+        if "symbol_latency" not in _state or not isinstance(_state["symbol_latency"], dict):
+            _state["symbol_latency"] = {}
+        _state["symbol_latency"][req.symbol] = round(elapsed_ms, 1)
 
         return ForecastResponse(
             symbol=req.symbol,
