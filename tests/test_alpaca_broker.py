@@ -253,3 +253,23 @@ def test_dashboard_broker_status_endpoint():
 
     app.dependency_overrides.clear()
 
+
+def test_get_broker_adapter_for_symbol_dual_mode():
+    """Test get_broker_adapter_for_symbol routes stocks to Alpaca and crypto pairs to Binance in dual mode."""
+    from app.services.brokers import get_broker_adapter_for_symbol
+    with patch("app.services.brokers.settings") as mock_settings:
+        mock_settings.BROKER_BACKEND = "dual"
+        mock_settings.ALPACA_TRADING_SYMBOLS = "SPY,QQQ,NVDA,AAPL,BTC/USD"
+
+        # US Equities -> Alpaca
+        assert get_broker_adapter_for_symbol("SPY").broker_name == "alpaca"
+        assert get_broker_adapter_for_symbol("AAPL").broker_name == "alpaca"
+        assert get_broker_adapter_for_symbol("NVDA").broker_name == "alpaca"
+        assert get_broker_adapter_for_symbol("BTC/USD").broker_name == "alpaca"
+
+        # Binance crypto pairs -> Binance
+        assert get_broker_adapter_for_symbol("BTCUSDT").broker_name == "binance"
+        assert get_broker_adapter_for_symbol("ETHUSDC").broker_name == "binance"
+        assert get_broker_adapter_for_symbol("SOLUSDC").broker_name == "binance"
+
+

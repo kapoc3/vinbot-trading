@@ -177,3 +177,4 @@ class AlpacaAdapter(BaseBrokerAdapter):
 
     async def close(self):
         await alpaca_client.close()
+

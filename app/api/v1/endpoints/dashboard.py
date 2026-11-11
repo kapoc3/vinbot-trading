@@ -66,13 +66,18 @@ async def _fetch_wallet_portfolio() -> Dict[str, Any]:
         "updated_at": now,
     }
 
+    backend = getattr(settings, "BROKER_BACKEND", "binance").lower()
+    is_dual_mode = backend in ("dual", "hybrid", "both")
+
     # If Alpaca broker is selected, fetch from Alpaca adapter
-    if getattr(settings, "BROKER_BACKEND", "binance").lower() == "alpaca":
+    if backend == "alpaca":
         try:
             from app.services.brokers import get_broker_adapter
             adapter = get_broker_adapter("alpaca")
             acc = await adapter.get_account()
             assets = await adapter.get_wallet_balances()
+            for a in assets:
+                a["broker"] = "alpaca"
             tot_usd = acc.get("equity_usd", 0.0)
             cash_usd = acc.get("cash_usd", 0.0)
             invested = max(0.0, tot_usd - cash_usd)
@@ -93,10 +98,35 @@ async def _fetch_wallet_portfolio() -> Dict[str, Any]:
             logger.error(f"DASHBOARD | Error fetching Alpaca wallet portfolio: {e}")
             return default_wallet
 
+    alp_assets = []
+    if is_dual_mode:
+        try:
+            from app.services.brokers import get_broker_adapter
+            adapter = get_broker_adapter("alpaca")
+            alp_assets = await adapter.get_wallet_balances()
+            for a in alp_assets:
+                a["broker"] = "alpaca"
+        except Exception as e:
+            logger.error(f"DASHBOARD | Dual mode Alpaca wallet error: {e}")
+
     # Skip network calls in mock mode or unit test mocks
     api_key = getattr(settings, "BINANCE_API_KEY", None)
     env_mode = getattr(settings, "BINANCE_ENV", "mock")
     if env_mode == "mock" or not isinstance(api_key, str) or not api_key or "mock" in api_key.lower():
+        if alp_assets:
+            tot_usd = sum(a.get("usd_value", 0.0) for a in alp_assets)
+            cash_usd = sum(a.get("usd_value", 0.0) for a in alp_assets if a.get("is_stable"))
+            invested = max(0.0, tot_usd - cash_usd)
+            return {
+                "total_usd": round(tot_usd, 2),
+                "free_stable_usd": round(cash_usd, 2),
+                "locked_usd": 0.0,
+                "invested_crypto_usd": round(invested, 2),
+                "goal_usd": 100.0,
+                "goal_progress_pct": round(min(100.0, (tot_usd / 100.0) * 100.0), 1) if tot_usd > 0 else 0.0,
+                "assets": alp_assets,
+                "updated_at": now,
+            }
         return default_wallet
 
     try:
@@ -184,7 +214,11 @@ async def _fetch_wallet_portfolio() -> Dict[str, Any]:
                 "in_bot_position": entry_price > 0 and usd_value >= 5.0,
                 "entry_price": round(entry_price, 4) if entry_price > 0 else None,
                 "unrealized_pnl_pct": unrealized_pnl_pct,
+                "broker": "binance",
             })
+
+        if is_dual_mode and alp_assets:
+            assets_list.extend(alp_assets)
 
         assets_list.sort(key=lambda x: x["usd_value"], reverse=True)
         total_usd = round(sum(a["usd_value"] for a in assets_list), 2)
@@ -1004,9 +1038,26 @@ async def get_broker_status(username: str = Depends(verify_session)):
     """Check active broker adapter backend, environment and account overview."""
     try:
         from app.services.brokers import get_broker_adapter
+        backend = getattr(settings, "BROKER_BACKEND", "binance").lower()
+        if backend in ("dual", "hybrid", "both"):
+            alpaca_adapter = get_broker_adapter("alpaca")
+            binance_adapter = get_broker_adapter("binance")
+            alp_acc = await alpaca_adapter.get_account()
+            bin_acc = await binance_adapter.get_account()
+            return {
+                "status": "success",
+                "broker": "dual",
+                "backend": backend,
+                "environment": f"alpaca:{getattr(settings, 'ALPACA_ENV', 'paper')}|binance:{getattr(settings, 'BINANCE_ENV', 'testnet')}",
+                "accounts": {
+                    "alpaca": alp_acc,
+                    "binance": bin_acc,
+                },
+                "account": alp_acc if alp_acc.get("equity_usd", 0) > 0 else bin_acc,
+            }
+
         adapter = get_broker_adapter()
         account = await adapter.get_account()
-        backend = getattr(settings, "BROKER_BACKEND", "binance").lower()
         env_mode = getattr(settings, "ALPACA_ENV", "paper") if backend == "alpaca" else getattr(settings, "BINANCE_ENV", "testnet")
         return {
             "status": "success",

@@ -51,10 +51,10 @@ class TradingEngine:
             else:
                 raise Exception("Failed to execute paper order")
 
-        # Route to Alpaca broker if configured
-        if getattr(settings, "BROKER_BACKEND", "binance").lower() == "alpaca":
-            from app.services.brokers import get_broker_adapter
-            adapter = get_broker_adapter("alpaca")
+        # Route to designated broker adapter (Alpaca, Binance, or Dual by symbol)
+        from app.services.brokers import get_broker_adapter_for_symbol
+        adapter = get_broker_adapter_for_symbol(symbol)
+        if adapter.broker_name == "alpaca":
             order = await adapter.place_order(symbol, side, quantity)
             self.order_history.append(order)
             await persistence.save_order(order, rsi=rsi)

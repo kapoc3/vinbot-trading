@@ -130,3 +130,4 @@ class BinanceAdapter(BaseBrokerAdapter):
 
     async def close(self):
         await binance_client.close()
+

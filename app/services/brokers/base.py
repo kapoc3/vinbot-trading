@@ -120,3 +120,4 @@ class BaseBrokerAdapter(ABC):
     async def close(self):
         """Clean up underlying network clients and connections."""
         pass
+

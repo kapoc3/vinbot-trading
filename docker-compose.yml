@@ -71,6 +71,19 @@ services:
     depends_on:
       - db
 
+  bot-alpaca:
+    build: .
+    container_name: vinbot-alpaca
+    env_file:
+      - .env.alpaca
+    volumes:
+      - ./app:/app/app
+      - ./data:/app/data
+      - ./logs_alpaca:/app/logs
+    restart: always
+    depends_on:
+      - db
+
   prometheus:
     image: prom/prometheus:latest
     container_name: vinbot-prometheus
