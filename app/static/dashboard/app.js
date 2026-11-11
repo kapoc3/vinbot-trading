@@ -1576,6 +1576,20 @@ async function sendChatMessage(customPromptText = null) {
             return;
         }
 
+        if (!response.ok) {
+            const errText = await response.text();
+            let parsedErr = `Error del servidor (${response.status})`;
+            try {
+                const j = JSON.parse(errText);
+                parsedErr = j.detail || j.message || parsedErr;
+            } catch (_) {
+                if (response.status === 504) {
+                    parsedErr = 'Tiempo de espera agotado (504 Gateway Timeout). El modelo está procesando en CPU y tardó más de lo esperado. Reinicia la PC para restaurar aceleración GPU NVIDIA o usa un modelo más ligero (qwen2.5:3b).';
+                }
+            }
+            throw new Error(parsedErr);
+        }
+
         const data = await response.json();
         
         // Remove typing indicator
