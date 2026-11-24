@@ -71,6 +71,7 @@ class RiskManager:
         trading_pnl_daily.set(0) # Reset Prometheus Gauge
         self.daily_loss_reached = False
         self.last_reset_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        await persistence.set_state("daily_pnl", 0.0)
         await persistence.set_state("daily_loss_reached", False)
         await persistence.set_state("last_reset_date", self.last_reset_date)
         logger.info("RISK | Daily stats reset for new day.")
@@ -278,7 +279,14 @@ class RiskManager:
             await notification_service.notify_status(f"CIRCUIT BREAKER reached! Daily Loss: {self.daily_pnl:.2f}")
 
     def is_trading_allowed(self) -> bool:
-        """Check if new trades are allowed based on daily risk."""
+        """Check if new trades are allowed based on daily risk and allocated capital."""
+        alloc_cap = getattr(settings, "ALLOCATED_CAPITAL", 1.0)
+        if isinstance(alloc_cap, (int, float)) and alloc_cap <= 0:
+            return False
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if self.last_reset_date != today:
+            # New UTC day detected; allow trading while background_metrics_task persists the full reset
+            return True
         return not self.daily_loss_reached
 
     def calculate_position_size(
@@ -420,9 +428,12 @@ class RiskManager:
             entry_price = self.entry_prices.get(symbol, 0)
             current_price = pos_data.get("current_price", entry_price)
             pnl_pct = ((current_price - entry_price) / entry_price) * 100 if entry_price > 0 else 0
+            if pnl_pct < 0.25:
+                # Do not force a losing time-based exit; let Hard Stop Loss or recovery handle it
+                return None
             qty = pos_data.get("current_qty", 0)
 
-            logger.warning(f"RISK | TIME EXIT triggered for {symbol} after {hours_held:.2f} hours (max: {settings.MAX_HOLD_HOURS})")
+            logger.warning(f"RISK | TIME EXIT triggered for {symbol} after {hours_held:.2f} hours at +{pnl_pct:.2f}% (max: {settings.MAX_HOLD_HOURS})")
 
             # Set cooldown
             self.time_exit_cooldowns[symbol] = datetime.now(timezone.utc) + timedelta(minutes=settings.TIME_EXIT_COOLDOWN_MINUTES)
@@ -505,9 +516,18 @@ class RiskManager:
         entry_price = self.entry_prices.get(symbol, 0)
         current_price = symbol_data.closes[-1] if symbol_data.closes else 0
         pnl_pct = ((current_price - entry_price) / entry_price) * 100 if entry_price > 0 else 0
+        if pnl_pct < 0.45:
+            # Never exit on divergence at a loss or before clearing round-trip commissions + net profit floor
+            return None
+
+        cur_rsi = symbol_data.get_rsi() if hasattr(symbol_data, "get_rsi") else None
+        if isinstance(cur_rsi, (int, float)) and cur_rsi < 55.0:
+            # Bearish divergence exit is only valid in elevated RSI territory
+            return None
+
         qty = self.position_data.get(symbol, {}).get("current_qty", 0)
 
-        logger.warning(f"RISK | DIVERGENCE EXIT triggered for {symbol} (bearish divergence detected)")
+        logger.warning(f"RISK | DIVERGENCE EXIT triggered for {symbol} at +{pnl_pct:.2f}% (bearish divergence detected)")
 
         return {"signal": "DIVERGENCE_EXIT", "pnl": pnl_pct, "quantity": qty, "is_final": True}
 

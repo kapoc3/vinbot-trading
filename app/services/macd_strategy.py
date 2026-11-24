@@ -50,8 +50,12 @@ class MacdMaCrossStrategy:
         if prev_hist is None:
             return None # Need two points for crossover
             
-        # BUY signal: Price > EMA 200 AND Histogram crossed from negative to positive
+        # BUY signal: Price > EMA 200 AND Histogram crossed from negative to positive (and RSI not exhausted)
         if current_price > ema_200 and prev_hist < 0 and current_hist > 0 and not current_in_position:
+            rsi = symbol_data.get_rsi()
+            if isinstance(rsi, (int, float)) and rsi > 58.0:
+                logger.info(f"STRATEGY | {symbol} MACD BUY suppressed: RSI {rsi:.1f} > 58.0 (Exhausted top)")
+                return None
             if not risk_manager.is_trading_allowed():
                 logger.warning(f"STRATEGY | BUY signal blocked by RISK MANAGER for {symbol}")
                 return None

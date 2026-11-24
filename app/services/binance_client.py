@@ -32,8 +32,10 @@ class BinanceClient:
         self.secret_key = settings.BINANCE_SECRET_KEY
         self.time_offset = 0
         self._client: Optional[httpx.AsyncClient] = None
+        self._direct_fallback_client: Optional[httpx.AsyncClient] = None
         self._proxy_clients: Dict[str, httpx.AsyncClient] = {}
         self.exchange_info: Dict[str, Any] = {}
+        self._proxy_cooldown_until: float = 0.0
 
         raw_proxies = proxy_urls if proxy_urls is not None else [
             p.strip() for p in settings.BINANCE_PROXY_URLS.split(",") if p.strip()
@@ -81,6 +83,12 @@ class BinanceClient:
             self._proxy_clients[proxy_url] = self._create_async_client(proxy_url)
         return self._proxy_clients[proxy_url]
 
+    def _get_direct_client(self) -> httpx.AsyncClient:
+        """Get or create a direct AsyncClient (no proxy) using the host's public IP."""
+        if self._direct_fallback_client is None or self._direct_fallback_client.is_closed:
+            self._direct_fallback_client = self._create_async_client(None)
+        return self._direct_fallback_client
+
     def _rotate_proxy(self) -> Optional[str]:
         """Rotate to the next static proxy in the failover list."""
         if not self.proxy_urls:
@@ -104,6 +112,12 @@ class BinanceClient:
             except Exception:
                 pass
             self._client = None
+        if self._direct_fallback_client is not None:
+            try:
+                await self._direct_fallback_client.aclose()
+            except Exception:
+                pass
+            self._direct_fallback_client = None
 
     async def sync_time(self):
         """Sync local time with Binance server time."""
@@ -153,16 +167,26 @@ class BinanceClient:
             current_params["signature"] = generate_signature(query_string, self.secret_key)
 
         use_proxy = self._should_use_proxy(signed)
-        attempts = len(self.proxy_urls) if use_proxy else 1
+        in_proxy_cooldown = use_proxy and (time.time() < self._proxy_cooldown_until)
+        if in_proxy_cooldown:
+            attempts = 1
+        else:
+            # Try each configured proxy, plus 1 final fallback attempt via DIRECT host public IP
+            attempts = (len(self.proxy_urls) + 1) if use_proxy else 1
         last_error: Optional[Exception] = None
 
         for attempt in range(attempts):
             active_client: httpx.AsyncClient
             route_label = "DIRECT"
-            if use_proxy:
+            is_direct_fallback = use_proxy and (in_proxy_cooldown or attempt == len(self.proxy_urls))
+
+            if use_proxy and not is_direct_fallback:
                 proxy_url = self.proxy_urls[self._active_proxy_idx]
                 active_client = self._get_proxy_client(proxy_url)
                 route_label = _mask_proxy_url(proxy_url)
+            elif is_direct_fallback:
+                active_client = self._get_direct_client()
+                route_label = "DIRECT_FALLBACK"
             else:
                 active_client = self.client
 
@@ -180,13 +204,25 @@ class BinanceClient:
                         await self.sync_time()
                         return await self.request(method, endpoint, params, signed, _retry_time_sync=False)
 
-                # Rotate proxy on geo-block (451), IP auth error (-2015 on 401/403), or bad gateway (502/503/504)
-                if use_proxy and response.status_code in (451, 502, 503, 504) and len(self.proxy_urls) > 1:
-                    logger.warning(f"NETWORK | HTTP {response.status_code} via {route_label}, rotating proxy...")
+                # Rotate proxy on geo-block (451), payment required (402), proxy auth (407), or bad gateway (502/503/504)
+                if use_proxy and not is_direct_fallback and response.status_code in (402, 407, 451, 502, 503, 504):
+                    logger.warning(f"NETWORK | HTTP {response.status_code} via {route_label}, failing over...")
                     self._rotate_proxy()
+                    if signed:
+                        current_params.pop("signature", None)
+                        current_params["timestamp"] = self._get_adjusted_timestamp()
+                        query_string = "&".join([f"{k}={v}" for k, v in current_params.items()])
+                        current_params["signature"] = generate_signature(query_string, self.secret_key)
                     continue
 
                 response.raise_for_status()
+                if is_direct_fallback and not in_proxy_cooldown:
+                    self._proxy_cooldown_until = time.time() + 600.0
+                    binance_active_proxy_index.set(-1)
+                    logger.warning(
+                        "NETWORK | All static proxies failed. Using DIRECT host public IP fallback "
+                        "(proxies paused for 10m cooldown)."
+                    )
                 return response.json()
 
             except httpx.HTTPStatusError as e:
@@ -195,16 +231,16 @@ class BinanceClient:
             except httpx.RequestError as e:
                 last_error = e
                 logger.warning(f"NETWORK | Transport error on {endpoint} via {route_label}: {e}")
-                if use_proxy and len(self.proxy_urls) > 1:
+                if use_proxy and not is_direct_fallback:
                     self._rotate_proxy()
-                    # Recompute timestamp/signature if signed before next attempt
+                    # Recompute timestamp/signature if signed before next attempt (proxy or direct fallback)
                     if signed:
                         current_params.pop("signature", None)
                         current_params["timestamp"] = self._get_adjusted_timestamp()
                         query_string = "&".join([f"{k}={v}" for k, v in current_params.items()])
                         current_params["signature"] = generate_signature(query_string, self.secret_key)
                     continue
-                elif not use_proxy:
+                elif not use_proxy or is_direct_fallback:
                     # Local ISP IP may have changed; reset direct connection pool
                     await self.reset_direct_client()
                     raise e

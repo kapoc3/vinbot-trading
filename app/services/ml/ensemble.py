@@ -58,6 +58,17 @@ def ensemble_predict(
                 pass
             return None, 0.0
 
+    # Prevent SELL -> BUY inversion when already holding a position in live trading
+    if has_live_probs and strategy_signal == "SELL" and ml_signal == "BUY":
+        if ml_confidence >= 0.68 and buy_prob > sell_prob * 1.5:
+            logger.info(
+                f"ENSEMBLE HOLD | {symbol}: Vetoed premature SELL — ML strongly predicts upside continuation "
+                f"(P(TP)={buy_prob:.2f}, conf={ml_confidence:.2f})"
+            )
+            return None, 0.0
+        logger.info(f"ENSEMBLE | {symbol}: Preserving strategy SELL despite ML BUY (conf={ml_confidence:.2f})")
+        return "SELL", 1.0
+
     # Case 1: ML says HOLD - check BEFORE disagree
     if ml_signal == "HOLD":
         logger.info(f"ENSEMBLE | {symbol}: ML says HOLD, following strategy with caution")

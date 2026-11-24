@@ -97,11 +97,26 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
         try:
             entry_p = risk_manager.entry_prices.get(symbol, 0)
             quote_asset = "USDC" if "USDC" in symbol else "USDT"
+            base_asset = symbol[:-len(quote_asset)] if symbol.endswith(quote_asset) else symbol.replace("USDC", "").replace("USDT", "")
 
-            # 1.1 Format for Binance LOT_SIZE before selling
+            # 1.1 Reconcile with actual free base balance on Binance and format LOT_SIZE
+            base_bal = await binance_client.get_asset_balance(base_asset)
+            free_base = float(base_bal.get("free", 0.0))
+            effective_sell_qty = min(float(qty_to_sell), free_base) if free_base > 0 else 0.0
+
             lot_info = await binance_client.get_exchange_info(symbol)
             step_size = float(lot_info.get("stepSize", 0.000001))
-            quantity = binance_client.round_step(qty_to_sell, step_size)
+            quantity = binance_client.round_step(effective_sell_qty, step_size)
+            qty_num = float(quantity) if quantity else 0.0
+
+            if qty_num <= 0 or (close_price > 0 and (qty_num * close_price) < 5.0):
+                logger.warning(
+                    f"RISK | {symbol} {risk_signal} skipped: available qty {quantity} (free={free_base}) "
+                    f"is below Binance MIN_NOTIONAL ($5). Clearing ghost/dust position state."
+                )
+                await rsi_strategy.update_position(symbol, False)
+                await risk_manager.clear_entry_price(symbol)
+                return
 
             # 1.2 Place the SELL order (suppress duplicate raw order notification)
             order = await trading_engine.place_market_order(symbol, "SELL", quantity=quantity, rsi=None, notify=False)
@@ -223,6 +238,12 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
                 
                 # Determine Quantity
                 if side == "BUY":
+                    if settings.ALLOCATED_CAPITAL <= 0 or (not settings.ENABLE_DYNAMIC_SIZING and settings.FIXED_ORDER_VALUE_USDT <= 0):
+                        logger.info(f"SIZING | {symbol} BUY skipped: 0% capital allocated.")
+                        return
+                    if risk_manager.is_position_open(symbol):
+                        logger.info(f"EXECUTION | {symbol} BUY skipped: position already open in RiskManager.")
+                        return
                     pos_mult = rsi_strategy.get_position_multiplier(symbol) if hasattr(rsi_strategy, "get_position_multiplier") else 1.0
 
                     # Microstructure Order Book Imbalance (OBI) check before committing capital
@@ -275,13 +296,26 @@ async def dummy_strategy_callback(data: Dict[str, Any]):
                             f"(Target: ${target_usdt:.2f} [Mult: {pos_mult:.2f}x], Step: {step_size})"
                         )
                 else:
-                    # For SELL, we must only sell what we actually have left in risk_manager
+                    # For SELL, reconcile tracked qty with actual free balance on Binance
                     pos_meta = risk_manager.position_data.get(symbol)
                     if pos_meta:
-                        raw_qty = pos_meta["current_qty"]
+                        quote_asset = "USDC" if "USDC" in symbol else "USDT"
+                        base_asset = symbol[:-len(quote_asset)] if symbol.endswith(quote_asset) else symbol.replace("USDC", "").replace("USDT", "")
+                        base_bal = await binance_client.get_asset_balance(base_asset)
+                        free_base = float(base_bal.get("free", 0.0))
+                        raw_qty = min(float(pos_meta["current_qty"]), free_base) if free_base > 0 else 0.0
                         lot_info = await binance_client.get_exchange_info(symbol)
                         step_size = float(lot_info.get("stepSize", 0.000001))
                         quantity = binance_client.round_step(raw_qty, step_size)
+                        qty_num = float(quantity) if quantity else 0.0
+                        if qty_num <= 0 or (close_price > 0 and (qty_num * close_price) < 5.0):
+                            logger.warning(
+                                f"EXECUTION | {symbol} SELL skipped: available qty {quantity} (free={free_base}) "
+                                f"below Binance MIN_NOTIONAL ($5). Clearing ghost/dust position state."
+                            )
+                            await rsi_strategy.update_position(symbol, False)
+                            await risk_manager.clear_entry_price(symbol)
+                            return
                     else:
                         logger.warning(f"EXECUTION | SELL Signal but NO position tracked in RiskManager for {symbol}. Resetting state.")
                         # Auto-sync strategy state to avoid ghost signals
@@ -366,11 +400,15 @@ async def background_report_task():
             logger.error(f"Error in background_report_task: {e}")
 
 async def background_metrics_task():
-    """Periodic task to update live balance metrics for Grafana."""
+    """Periodic task to update live balance metrics for Grafana and check 00:00 UTC daily reset."""
+    from datetime import datetime, timezone
     from app.core.metrics import binance_wallet_balance
     while True:
         try:
             await asyncio.sleep(60) # 60 seconds
+            today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            if risk_manager.last_reset_date != today_utc:
+                await risk_manager.reset_daily_stats()
             quote_asset = "USDC" if any("USDC" in s for s in settings.TRADING_SYMBOLS.split(",")) else "USDT"
             bal_info = await binance_client.get_asset_balance(quote_asset)
             current_bal = float(bal_info.get("free", 0.0))

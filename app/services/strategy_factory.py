@@ -125,7 +125,9 @@ class DynamicStrategyProxy:
         confluence_mult = 1.0
         ensemble_mult = 1.0
 
-        # 1. Trailing Stop Evaluation
+        from app.services.risk_manager import risk_manager
+
+        # 1. Trailing Stop Evaluation (Profit-Activated & Fee-Protected)
         if settings.ENABLE_TRAILING_STOP:
             strategy = strategy_manager.get_strategy(symbol)
             in_position = strategy.positions.get(symbol, False)
@@ -137,32 +139,62 @@ class DynamicStrategyProxy:
                     
                 current_price = symbol_data.closes[-1]
                 atr = symbol_data.get_atr()
+                entry_p = float(risk_manager.entry_prices.get(symbol, 0.0))
                 
                 # Retrieve or initialize high watermark
                 highest = self.highest_prices.get(symbol, current_price)
                 if current_price > highest:
                     highest = current_price
                     self.highest_prices[symbol] = highest
-                    # Persist the new high
-                    # Note: Using asyncio within a synchronous 'analyze' call can be tricky, 
-                    # but persistence here is mostly for recovery after crashes.
                 
                 if atr is not None:
-                    stop_level = highest - (atr * settings.ATR_TRAILING_MULTIPLIER)
-                    if current_price < stop_level:
-                        logger.info(f"RISK | TRAILING STOP TRIGGERED for {symbol} at {current_price:.2f} (Stop: {stop_level:.2f}, ATR: {atr:.2f})")
-                        return "SELL"
+                    # Only activate trailing stop after reaching TRAILING_TP_ACTIVATION_PCT profit
+                    # (prevents 1m ATR noise from choking trades in loss right after entry)
+                    activation_pct = float(getattr(settings, "TRAILING_TP_ACTIVATION_PCT", 0.85))
+                    be_factor = float(getattr(settings, "ROUND_TRIP_FEE_FACTOR", 1.0015))
+                    is_activated = True
+                    if entry_p > 0:
+                        peak_pnl_pct = ((highest - entry_p) / entry_p) * 100.0
+                        is_activated = peak_pnl_pct >= activation_pct
+
+                    if is_activated:
+                        atr_dist = max(atr * settings.ATR_TRAILING_MULTIPLIER, highest * 0.0035)
+                        stop_level = highest - atr_dist
+                        if entry_p > 0:
+                            # Never trail below Break-Even + Round-Trip Fees + 0.25% net profit floor
+                            min_profit_floor = entry_p * be_factor * 1.0025
+                            stop_level = max(stop_level, min_profit_floor)
+                        if current_price < stop_level and (entry_p <= 0 or current_price >= entry_p * be_factor * 1.0015):
+                            logger.info(
+                                f"RISK | TRAILING STOP TRIGGERED for {symbol} at {current_price:.2f} "
+                                f"(Stop: {stop_level:.2f}, Peak: {highest:.2f}, ATR: {atr:.2f})"
+                            )
+                            return "SELL"
 
         # 2. Normal Strategy Analysis
         signal = strategy_manager.get_strategy(symbol).analyze(symbol)
         ai_triggered = False
+
+        # 2.1 Fee & Profit Floor Guard for Technical Strategy SELL Signals
+        if signal == "SELL":
+            symbol_data = get_symbol_data(symbol)
+            cur_price = symbol_data.closes[-1] if (symbol_data and symbol_data.closes) else 0.0
+            entry_p = float(risk_manager.entry_prices.get(symbol, 0.0))
+            be_factor = float(getattr(settings, "ROUND_TRIP_FEE_FACTOR", 1.0015))
+            if entry_p > 0 and cur_price > 0:
+                min_net_exit = entry_p * be_factor * 1.0040  # Require at least +0.40% net profit after fees
+                if cur_price < min_net_exit:
+                    logger.info(
+                        f"FEE GUARD | {symbol} Strategy SELL suppressed at {cur_price:.4f} "
+                        f"(Entry: {entry_p:.4f}, Min Net Profit Target: {min_net_exit:.4f})"
+                    )
+                    signal = None
 
         # 2.5 Proactive Local AI Trigger (High-Conviction Autonomous BUY / Profit-Protection SELL)
         if signal is None and getattr(settings, "ML_ENABLED", False):
             try:
                 from app.services.ml.predictor import ml_predictor, get_prediction_with_confidence
                 from app.services.ml.feature_engineering import extract_features
-                from app.services.risk_manager import risk_manager
 
                 symbol_data = get_symbol_data(symbol)
                 if symbol_data and symbol_data.closes and len(symbol_data.closes) >= 50:
@@ -179,18 +211,22 @@ class DynamicStrategyProxy:
                             live_acc = float(snap.get("live_accuracy", 0.0))
                             cur_rsi = symbol_data.get_rsi() or 50.0
                             cur_price = symbol_data.closes[-1]
-                            in_pos = strategy_manager.get_strategy(symbol).positions.get(symbol, False)
+                            in_pos = (
+                                strategy_manager.get_strategy(symbol).positions.get(symbol, False)
+                                or risk_manager.is_position_open(symbol)
+                            )
 
                             if not in_pos:
-                                # Autonomous AI BUY when Triple-Barrier P(TP) strongly dominates P(SL) and OBI/RSI support entry
+                                # Autonomous AI BUY: must respect RiskManager circuit breaker and tighter RSI/OBI filters
                                 accuracy_ok = (live_eval < 5) or (live_acc >= 55.0)
                                 if (
-                                    ml_sig == "BUY"
-                                    and buy_prob >= 0.50
-                                    and buy_prob >= sell_prob * 1.8
+                                    risk_manager.is_trading_allowed()
+                                    and ml_sig == "BUY"
+                                    and buy_prob >= 0.53
+                                    and buy_prob >= sell_prob * 1.9
                                     and accuracy_ok
-                                    and obi >= -0.12
-                                    and cur_rsi <= 56.0
+                                    and obi >= -0.08
+                                    and cur_rsi <= 48.0
                                 ):
                                     logger.info(
                                         f"AI TRIGGER | {symbol} Autonomous AI BUY initiated "
@@ -199,15 +235,16 @@ class DynamicStrategyProxy:
                                     signal = "BUY"
                                     ai_triggered = True
                             else:
-                                # Autonomous AI Profit-Protection SELL when position is in net profit and AI detects reversal
+                                # Autonomous AI Profit-Protection SELL when position has meaningful net profit (+0.55% net) and AI detects reversal
                                 entry_p = risk_manager.entry_prices.get(symbol, 0.0)
+                                be_factor = float(getattr(settings, "ROUND_TRIP_FEE_FACTOR", 1.0015))
                                 if (
                                     ml_sig == "SELL"
-                                    and sell_prob >= 0.48
-                                    and sell_prob >= buy_prob * 1.6
+                                    and sell_prob >= 0.52
+                                    and sell_prob >= buy_prob * 1.7
                                     and entry_p > 0
-                                    and cur_price >= entry_p * 1.0035
-                                    and cur_rsi >= 54.0
+                                    and cur_price >= entry_p * be_factor * 1.0055
+                                    and cur_rsi >= 58.0
                                 ):
                                     logger.info(
                                         f"AI TRIGGER | {symbol} Autonomous AI Profit-Lock SELL initiated at {cur_price:.4f} "
@@ -359,6 +396,17 @@ class DynamicStrategyProxy:
                 logger.debug(f"Kronos evaluation error in strategy factory for {symbol}: {e}")
 
         if signal is not None:
+            in_pos_now = (
+                strategy_manager.get_strategy(symbol).positions.get(symbol, False)
+                or risk_manager.is_position_open(symbol)
+            )
+            if signal == "BUY" and in_pos_now:
+                logger.info(f"POSITION GUARD | {symbol} BUY blocked: position already open.")
+                return None
+            if signal == "SELL" and not in_pos_now:
+                logger.info(f"POSITION GUARD | {symbol} SELL blocked: no open position.")
+                return None
+
             combined_mult = round(max(0.3, min(1.5, confluence_mult * ensemble_mult)), 4)
             self.position_multipliers[symbol] = combined_mult
             try:
